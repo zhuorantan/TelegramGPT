@@ -58,4 +58,4 @@ For Docker Compose, add the environment variables to the `environment` section.
 
 ## Usage
 
-Simply send a message to the bot and it will reply with a ChatGPT response. To clear current conversation, send command `/clear`.
+Simply send a message to the bot and it will reply with a ChatGPT response. To start a new conversation, send command `/new`.

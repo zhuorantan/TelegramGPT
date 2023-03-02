@@ -13,7 +13,7 @@ class Bot:
 
     app.add_handler(CommandHandler('start', self.__start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.__reply))
-    app.add_handler(CommandHandler('clear', self.__clear))
+    app.add_handler(CommandHandler('new', self.__new_conversation))
 
     app.run_polling()
 
@@ -48,9 +48,9 @@ class Bot:
 
     logging.info(f"Replied chat {update.effective_chat.id} with text '{text}'")
 
-  async def __clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+  async def __new_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
-      logging.warning(f"Clear command received but ignored because it doesn't have a chat")
+      logging.warning(f"New command received but ignored because it doesn't have a chat")
       return
 
     if not self.__check_chat(update.effective_chat.id):
@@ -58,9 +58,9 @@ class Bot:
 
     self.__gpt.clear(update.effective_chat.id)
 
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Conversation cleared")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Starting a new conversation.")
 
-    logging.info(f"Cleared conversation for chat {update.effective_chat.id}")
+    logging.info(f"Started a new conversation for chat {update.effective_chat.id}")
 
   def __check_chat(self, chat_id: int):
     if self.__chat_id and chat_id != self.__chat_id:
