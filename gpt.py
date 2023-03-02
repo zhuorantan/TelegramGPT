@@ -40,7 +40,8 @@ class MessageHistory:
 
 
 class GPTClient:
-  def __init__(self, api_key: str):
+  def __init__(self, api_key: str, max_message_count: int|None):
+    self.__max_message_count = max_message_count
     self.__history = MessageHistory()
 
     openai.api_key = api_key
@@ -72,5 +73,8 @@ class GPTClient:
     messages = self.__history.get(chat_id)
     if len(messages) == 0:
       messages.append({'role': Role.SYSTEM, 'content': 'You are a helpful assistant.'})
+
+    elif self.__max_message_count and len(messages) > self.__max_message_count:
+      messages = messages[-self.__max_message_count:]
 
     return messages

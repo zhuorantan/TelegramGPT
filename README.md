@@ -1,6 +1,6 @@
 # TelegramGPT
 
-Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com/docs/guides/chat).
+Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com/docs/guides/chat). This project is experimental and subject to change.
 
 ## Get Started
 
@@ -21,12 +21,6 @@ docker build -t telegram-gpt github.com/zhuorantan/TelegramGPT#main
 docker run --rm telegram-gpt --openai-api-key "<OPENAI_API_KEY>" --telegram-token "<TELEGRAM_TOKEN>"
 ```
 
-Optionally set `--chat-id` to restrict the bot to a specific chat. You can get your chat ID by sending a message to the bot and going to this URL to view the chat ID:
-
-`https://api.telegram.org/bot<TELEGRAM_TOKEN>/getUpdates`
-
-The chat ID would be the `id` field in the JSON response.
-
 #### Docker Compose
 
 ```yaml
@@ -43,6 +37,21 @@ services:
       - --chat-id
       - "<CHAT_ID>"
 ```
+
+#### Options
+
+- `--chat-id`
+
+Optionally set `--chat-id` to restrict the bot to a specific chat. You can get your chat ID by sending a message to the bot and going to this URL to view the chat ID:
+
+`https://api.telegram.org/bot<TELEGRAM_TOKEN>/getUpdates`
+
+The chat ID would be the `id` field in the JSON response.
+
+- `--max-message-count`
+
+Limit the number of messages to be sent to OpenAI API. Default is unlimited.
+
 
 > To use proxy, add `-e http_proxy=http://<proxy>:<port>` and `-e https_proxy=http://<proxy>:<port>` to the `docker run` command.
 For Docker Compose, add the environment variables to the `environment` section.
