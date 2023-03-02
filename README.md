@@ -46,3 +46,7 @@ services:
 
 > To use proxy, add `-e http_proxy=http://<proxy>:<port>` and `-e https_proxy=http://<proxy>:<port>` to the `docker run` command.
 For Docker Compose, add the environment variables to the `environment` section.
+
+## Usage
+
+Simply send a message to the bot and it will reply with a ChatGPT response. To clear current conversation, send command `/clear`.
