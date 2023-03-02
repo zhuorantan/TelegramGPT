@@ -40,9 +40,11 @@ class Bot:
     if not update.message or not update.message.text:
       return
 
+    message = await context.bot.send_message(chat_id=update.effective_chat.id, text="Generating response...")
+
     text = self.__gpt.complete(update.effective_chat.id, update.message.text)
 
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=message.message_id, text=text)
 
     logging.info(f"Replied chat {update.effective_chat.id} with text '{text}'")
 
