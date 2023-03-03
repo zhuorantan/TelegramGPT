@@ -1,34 +1,16 @@
 import asyncio
 import logging
 import openai
-from datetime import datetime, timedelta
-from enum import Enum
 from models import Conversation, Message, Role
 from store import Store
 
-class ConversationState(Enum):
-  NOT_STARTED = 0
-  ONGOING = 1
-  EXPIRED = 2
-
 class GPTClient:
-  def __init__(self, api_key: str, timeout_in_minutes: int|None, max_message_count: int|None):
-    self.__timeout_in_minutes = timeout_in_minutes
+  def __init__(self, api_key: str, max_message_count: int|None):
     self.__max_message_count = max_message_count
     self.__store = Store()
     self.__background_tasks = set()
 
     openai.api_key = api_key
-
-  def get_state(self, chat_id: int) -> ConversationState:
-    conversation = self.__store.get_current_conversation(chat_id)
-    if not conversation:
-      return ConversationState.NOT_STARTED
-
-    if conversation.last_message and self.__timeout_in_minutes and datetime.now() - conversation.last_message.timestamp > timedelta(minutes=self.__timeout_in_minutes):
-      return ConversationState.EXPIRED
-
-    return ConversationState.ONGOING
 
   async def complete(self, chat_id: int, text: str):
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
@@ -43,13 +25,17 @@ class GPTClient:
 
     self.__store.add_message(message, conversation)
 
-    return message.content
+    return (message.content, conversation)
 
   def start_new(self, chat_id: int):
     self.__store.terminate_conversation(chat_id)
 
+  def resume(self, chat_id: int, conversation_id: int) -> Conversation|None:
+    return self.__store.resume_conversation(chat_id, conversation_id)
+
   def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
     conversation = self.__store.get_current_conversation(chat_id)
+
     if not conversation:
       conversation = self.__store.new_conversation(chat_id, message, None)
 
@@ -63,7 +49,7 @@ class GPTClient:
     return conversation
 
   async def __set_title(self, conversation: Conversation, message: Message):
-    prompt = 'You are a title generator. You will receive a message that initiates a conversation. You will reply with only the title of the conversation.'
+    prompt = 'You are a title generator. You will receive a message that initiates a conversation. You will reply with only the title of the conversation without any punctuation mark either at the begining or the end.'
     messages = [
       Message(Role.SYSTEM, prompt),
       message,

@@ -15,6 +15,7 @@ class Message:
 
 @dataclass
 class Conversation:
+  id: int
   title: str|None
   started_at: datetime
   messages: list[Message]
