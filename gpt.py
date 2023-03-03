@@ -39,7 +39,9 @@ class GPTClient:
   def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
     conversation = self.__store.get_current_conversation(chat_id)
 
-    if not conversation:
+    if conversation:
+      self.__store.add_message(message, conversation)
+    else:
       conversation = self.__store.new_conversation(chat_id, message, None)
 
       task = asyncio.create_task(self.__set_title(conversation, message))

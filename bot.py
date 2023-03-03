@@ -105,7 +105,8 @@ class Bot:
 
   def __add_timeout_task(self, job_queue: JobQueue|None, chat_id: int, data: TimeoutJobData):
     if chat_id in self.__timeout_jobs:
-      self.__timeout_jobs[chat_id].schedule_removal()
+      if not self.__timeout_jobs[chat_id].removed:
+        self.__timeout_jobs[chat_id].schedule_removal()
       del self.__timeout_jobs[chat_id]
 
     if not job_queue:
@@ -161,6 +162,9 @@ class Bot:
 
     conversations = self.__gpt.get_all_conversations(update.effective_chat.id)
     text = '\n'.join(f"[/resume_{conversation.id}] {conversation.title} ({conversation.started_at:%Y-%m-%d %H:%M})" for conversation in conversations)
+
+    if not text:
+      text = "No conversation history"
 
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
