@@ -19,7 +19,7 @@ class Store:
     chat_state = self.__data[chat_id]
     return chat_state.current_conversation
 
-  def new_conversation(self, chat_id: int, message: Message, title: str) -> Conversation:
+  def new_conversation(self, chat_id: int, message: Message, title: str|None) -> Conversation:
     if chat_id not in self.__data:
       self.__data[chat_id] = ChatState([], None)
 

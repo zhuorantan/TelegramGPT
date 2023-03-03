@@ -15,7 +15,7 @@ class Message:
 
 @dataclass
 class Conversation:
-  title: str
+  title: str|None
   started_at: datetime
   messages: list[Message]
 

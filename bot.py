@@ -9,7 +9,7 @@ class Bot:
     self.__chat_id = chat_id
 
   def run(self, token: str):
-    app = ApplicationBuilder().token(token).build()
+    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
 
     app.add_handler(CommandHandler('start', self.__start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.__reply))
@@ -42,7 +42,7 @@ class Bot:
 
     message = await context.bot.send_message(chat_id=update.effective_chat.id, text="Generating response...")
 
-    text = self.__gpt.complete(update.effective_chat.id, update.message.text)
+    text = await self.__gpt.complete(update.effective_chat.id, update.message.text)
 
     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=message.message_id, text=text)
 
