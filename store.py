@@ -13,11 +13,16 @@ class Store:
     self.__data = {}
 
   def get_current_conversation(self, chat_id: int) -> Conversation|None:
-    if chat_id not in self.__data:
+    chat_state = self.__data.get(chat_id)
+    if not chat_state:
       return None
-
-    chat_state = self.__data[chat_id]
     return chat_state.current_conversation
+
+  def get_all_conversations(self, chat_id: int) -> list[Conversation]:
+    chat_state = self.__data.get(chat_id)
+    if not chat_state:
+      return []
+    return list(chat_state.conversations.values())
 
   def new_conversation(self, chat_id: int, message: Message, title: str|None) -> Conversation:
     if chat_id not in self.__data:

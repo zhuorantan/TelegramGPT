@@ -33,6 +33,9 @@ class GPTClient:
   def resume(self, chat_id: int, conversation_id: int) -> Conversation|None:
     return self.__store.resume_conversation(chat_id, conversation_id)
 
+  def get_all_conversations(self, chat_id: int) -> list[Conversation]:
+    return self.__store.get_all_conversations(chat_id)
+
   def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
     conversation = self.__store.get_current_conversation(chat_id)
 

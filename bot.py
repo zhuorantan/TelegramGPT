@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from gpt import GPTClient
 from models import Conversation
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CallbackQueryHandler, JobQueue, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from telegram.ext import Application, CallbackQueryHandler, JobQueue, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from typing import cast
 
 @dataclass
@@ -20,14 +20,25 @@ class Bot:
     self.__timeout_jobs = {}
 
   def run(self, token: str):
-    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
+    app = ApplicationBuilder().token(token).concurrent_updates(True).post_init(self.__post_init).build()
 
     app.add_handler(CommandHandler('start', self.__start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.__reply))
     app.add_handler(CallbackQueryHandler(self.__resume))
+    app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), self.__resume))
     app.add_handler(CommandHandler('new', self.__new_conversation))
+    app.add_handler(CommandHandler('history', self.__show_conversation_history))
 
     app.run_polling()
+
+  @staticmethod
+  async def __post_init(app: Application):
+    commands = [
+      ('new', "Start a new conversation"),
+      ('history', "Show previous conversations"),
+    ]
+    await app.bot.set_my_commands(commands)
+    logging.info("Set command list")
 
   async def __start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
@@ -69,13 +80,17 @@ class Bot:
     if not self.__check_chat(chat_id):
       return
 
+    conversation_id = None
     query = update.callback_query
-    if not query or not query.data:
-      return
 
-    await query.answer()
+    if query and query.data and query.data.startswith('resume_'):
+      await query.answer()
+      conversation_id = int(query.data.split('_')[1])
+    elif update.message and update.message.text and update.message.text.startswith('/resume_'):
+      conversation_id = int(update.message.text.split('_')[1])
+    else:
+      raise Exception("Invalid parameters")
 
-    conversation_id = int(query.data.split("_")[1])
     conversation = self.__gpt.resume(chat_id, conversation_id)
     if not conversation:
       await context.bot.send_message(chat_id=chat_id, text="Failed to find that conversation. Try sending a new message.")
@@ -127,6 +142,21 @@ class Bot:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Starting a new conversation.")
 
     logging.info(f"Started a new conversation for chat {update.effective_chat.id}")
+
+  async def __show_conversation_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_chat:
+      logging.warning(f"New command received but ignored because it doesn't have a chat")
+      return
+
+    if not self.__check_chat(update.effective_chat.id):
+      return
+
+    conversations = self.__gpt.get_all_conversations(update.effective_chat.id)
+    text = '\n'.join(f"[/resume_{conversation.id}] {conversation.title} ({conversation.started_at:%Y-%m-%d %H:%M})" for conversation in conversations)
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+
+    logging.info(f"Showed conversation history for chat {update.effective_chat.id}")
 
   def __check_chat(self, chat_id: int):
     if self.__chat_id and chat_id != self.__chat_id:
