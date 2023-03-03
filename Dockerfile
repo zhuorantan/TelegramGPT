@@ -8,4 +8,4 @@ RUN pip install -r requirements.txt
 
 COPY *.py /app/
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "telegram-gpt.py"]

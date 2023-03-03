@@ -1,44 +1,45 @@
 import logging
 import openai
-from message import Role
-from history import MessageHistory
+from models import Conversation, Message, Role
+from store import Store
 
 class GPTClient:
   def __init__(self, api_key: str, max_message_count: int|None):
     self.__max_message_count = max_message_count
-    self.__history = MessageHistory()
+    self.__store = Store()
 
     openai.api_key = api_key
 
   def complete(self, chat_id: int, text: str):
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
 
-    messages = self.__get_previous_messages(chat_id)
-    messages.append({'role': Role.USER, 'content': text})
+    conversation = self.__get_conversation(chat_id, Message(Role.USER, text))
 
-    logging.debug(f"Current messages for chat {chat_id}: {messages}")
+    logging.debug(f"Current conversation for chat {chat_id}: {conversation}")
 
     response = openai.ChatCompletion.create(
       model='gpt-3.5-turbo',
-      messages=messages,
+      messages=[{ 'role': message.role, 'content': message.content } for message in conversation.messages],
     )
-    message = response['choices'][0]['message']
+    raw_message = response['choices'][0]['message']
+
+    message = Message(raw_message['role'], raw_message['content'])
 
     logging.info(f"Completed message for chat {chat_id}, text: '{message}'")
 
-    self.__history.add(chat_id, message)
+    self.__store.add_message(message, conversation)
 
-    return message.content
+    return raw_message.content
 
-  def clear(self, chat_id: int):
-    self.__history.clear(chat_id)
+  def start_new(self, chat_id: int):
+    self.__store.terminate_conversation(chat_id)
 
-  def __get_previous_messages(self, chat_id: int):
-    messages = self.__history.get(chat_id)
-    if len(messages) == 0:
-      messages.append({'role': Role.SYSTEM, 'content': 'You are a helpful assistant.'})
+  def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
+    conversation = self.__store.get_current_conversation(chat_id)
+    if not conversation:
+      conversation = self.__store.new_conversation(chat_id, message, 'foobar')
 
-    elif self.__max_message_count and len(messages) > self.__max_message_count:
-      messages = messages[-self.__max_message_count:]
+    if self.__max_message_count and len(conversation.messages) > self.__max_message_count:
+      conversation.messages = conversation.messages[-self.__max_message_count:]
 
-    return messages
+    return conversation

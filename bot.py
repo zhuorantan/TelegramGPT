@@ -56,7 +56,7 @@ class Bot:
     if not self.__check_chat(update.effective_chat.id):
       return
 
-    self.__gpt.clear(update.effective_chat.id)
+    self.__gpt.start_new(update.effective_chat.id)
 
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Starting a new conversation.")
 
