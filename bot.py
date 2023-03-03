@@ -1,16 +1,23 @@
-import asyncio
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message as TGMessage, Update
-from telegram.ext import CallbackQueryHandler, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from dataclasses import dataclass
 from gpt import GPTClient
 from models import Conversation
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, JobQueue, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from typing import cast
+
+@dataclass
+class TimeoutJobData:
+  conversation: Conversation
+  message_id: int
+  text: str
 
 class Bot:
   def __init__(self, gpt: GPTClient, chat_id: str|None, conversation_timeout: int):
     self.__gpt = gpt
     self.__chat_id = chat_id
     self.__conversation_timeout = conversation_timeout
-    self.__timeout_tasks = {}
+    self.__timeout_jobs = {}
 
   def run(self, token: str):
     app = ApplicationBuilder().token(token).concurrent_updates(True).build()
@@ -48,7 +55,7 @@ class Bot:
     text, conversation = await self.__gpt.complete(chat_id, update.message.text)
     await context.bot.edit_message_text(chat_id=chat_id, message_id=message.id, text=text)
 
-    self.__add_timeout_task(conversation, message, text, context.bot)
+    self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, message.id, text))
 
     logging.info(f"Replied chat {chat_id} with text '{text}'")
 
@@ -77,28 +84,35 @@ class Bot:
     text = f"Resuming conversation \"{conversation.title}\":"
     message = await context.bot.send_message(chat_id=chat_id, text=text)
 
-    self.__add_timeout_task(conversation, message, text, context.bot)
+    self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, message.id, text))
 
     logging.info(f"Resumed conversation {conversation_id} for chat {chat_id}")
 
-  def __add_timeout_task(self, conversation: Conversation, message: TGMessage, text: str, bot):
-    if message.chat_id in self.__timeout_tasks:
-      self.__timeout_tasks[message.chat_id].cancel()
+  def __add_timeout_task(self, job_queue: JobQueue|None, chat_id: int, data: TimeoutJobData):
+    if chat_id in self.__timeout_jobs:
+      self.__timeout_jobs[chat_id].schedule_removal()
 
-    self.__timeout_tasks[message.chat_id] = asyncio.create_task(self.__timeout_task(conversation, message, text, bot))
+    if not job_queue:
+      raise Exception("Job Queue not exists")
 
-  async def __timeout_task(self, conversation: Conversation, message: TGMessage, text: str, bot):
-    await asyncio.sleep(self.__conversation_timeout)
+    self.__timeout_jobs[chat_id] = job_queue.run_once(self.__time_out_conversation, self.__conversation_timeout, data, chat_id=chat_id)
 
-    del self.__timeout_tasks[message.chat_id]
-    self.__gpt.start_new(message.chat_id)
+  async def __time_out_conversation(self, context: ContextTypes.DEFAULT_TYPE):
+    if not context.job or not context.job.chat_id or not context.job.data:
+      raise Exception("Invalid parameters")
 
-    new_text = text + f"\n\nThis conversation is timed out and it was about \"{conversation.title}\". A new conversation has started."
-    resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"resume_{conversation.id}")]])
+    chat_id = context.job.chat_id
+    data = cast(TimeoutJobData, context.job.data)
 
-    await bot.edit_message_text(chat_id=message.chat_id, message_id=message.id, text=new_text, reply_markup=resume_markup)
+    del self.__timeout_jobs[chat_id]
+    self.__gpt.start_new(chat_id)
 
-    logging.info(f"Conversation {conversation.id} timed out")
+    new_text = data.text + f"\n\nThis conversation has timed out and it was about \"{data.conversation.title}\". A new conversation has started."
+    resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"resume_{data.conversation.id}")]])
+
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=data.message_id, text=new_text, reply_markup=resume_markup)
+
+    logging.info(f"Conversation {data.conversation.id} timed out")
 
   async def __new_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
