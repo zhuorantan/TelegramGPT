@@ -13,7 +13,7 @@ class TimeoutJobData:
   text: str
 
 class Bot:
-  def __init__(self, gpt: GPTClient, chat_id: str|None, conversation_timeout: int):
+  def __init__(self, gpt: GPTClient, chat_id: str|None, conversation_timeout: int|None):
     self.__gpt = gpt
     self.__chat_id = chat_id
     self.__conversation_timeout = conversation_timeout
@@ -106,9 +106,13 @@ class Bot:
   def __add_timeout_task(self, job_queue: JobQueue|None, chat_id: int, data: TimeoutJobData):
     if chat_id in self.__timeout_jobs:
       self.__timeout_jobs[chat_id].schedule_removal()
+      del self.__timeout_jobs[chat_id]
 
     if not job_queue:
       raise Exception("Job Queue not exists")
+
+    if not self.__conversation_timeout:
+      return
 
     self.__timeout_jobs[chat_id] = job_queue.run_once(self.__time_out_conversation, self.__conversation_timeout, data, chat_id=chat_id)
 
