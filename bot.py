@@ -139,6 +139,10 @@ class Bot:
 
     self.__gpt.start_new(update.effective_chat.id)
 
+    timeout_job = self.__timeout_jobs.get(update.effective_chat.id)
+    if timeout_job:
+      timeout_job.run(context.application)
+
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Starting a new conversation.")
 
     logging.info(f"Started a new conversation for chat {update.effective_chat.id}")
