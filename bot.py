@@ -1,7 +1,7 @@
 import logging
 from telegram import Update
 from telegram.ext import filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
-from gpt import GPTClient
+from gpt import ConversationState, GPTClient
 
 class Bot:
   def __init__(self, gpt: GPTClient, chat_id: str|None):
@@ -34,19 +34,24 @@ class Bot:
       logging.warning(f"Reply command received but ignored because it doesn't have a chat")
       return
 
-    if not self.__check_chat(update.effective_chat.id):
+    chat_id = update.effective_chat.id
+
+    if not self.__check_chat(chat_id):
       return
 
     if not update.message or not update.message.text:
       return
 
-    message = await context.bot.send_message(chat_id=update.effective_chat.id, text="Generating response...")
+    if self.__gpt.get_state(chat_id) == ConversationState.EXPIRED:
+      await context.bot.send_message(chat_id=chat_id, text="Previous conversation timed out. Starting a new conversation.")
+      self.__gpt.start_new(chat_id)
+      logging.info(f"Chat {chat_id} timed out. Starting a new conversation.")
 
-    text = await self.__gpt.complete(update.effective_chat.id, update.message.text)
+    message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
+    text = await self.__gpt.complete(chat_id, update.message.text)
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=message.message_id, text=text)
 
-    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=message.message_id, text=text)
-
-    logging.info(f"Replied chat {update.effective_chat.id} with text '{text}'")
+    logging.info(f"Replied chat {chat_id} with text '{text}'")
 
   async def __new_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:

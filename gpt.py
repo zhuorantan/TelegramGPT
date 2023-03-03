@@ -1,16 +1,34 @@
 import asyncio
 import logging
 import openai
+from datetime import datetime, timedelta
+from enum import Enum
 from models import Conversation, Message, Role
 from store import Store
 
+class ConversationState(Enum):
+  NOT_STARTED = 0
+  ONGOING = 1
+  EXPIRED = 2
+
 class GPTClient:
-  def __init__(self, api_key: str, max_message_count: int|None):
+  def __init__(self, api_key: str, timeout_in_minutes: int|None, max_message_count: int|None):
+    self.__timeout_in_minutes = timeout_in_minutes
     self.__max_message_count = max_message_count
     self.__store = Store()
     self.__background_tasks = set()
 
     openai.api_key = api_key
+
+  def get_state(self, chat_id: int) -> ConversationState:
+    conversation = self.__store.get_current_conversation(chat_id)
+    if not conversation:
+      return ConversationState.NOT_STARTED
+
+    if conversation.last_message and self.__timeout_in_minutes and datetime.now() - conversation.last_message.timestamp > timedelta(minutes=self.__timeout_in_minutes):
+      return ConversationState.EXPIRED
+
+    return ConversationState.ONGOING
 
   async def complete(self, chat_id: int, text: str):
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
