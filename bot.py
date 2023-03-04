@@ -62,9 +62,10 @@ class Bot:
     if not self.__check_chat(chat_id):
       return
 
-    message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
+    placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
     text, conversation = await self.__gpt.complete(chat_id, update.message.text)
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=message.id, text=text)
+    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.message_id)
+    message = await context.bot.send_message(chat_id=chat_id, text=text)
 
     self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, message.id, text))
 
