@@ -50,6 +50,9 @@ services:
 - `--chat-id`
 
 Optionally set `--chat-id` to restrict the bot to a specific chat.
+To allow multiple chats, set `--chat-id` multiple times.
+If no `--chat-id` is set, the bot will accept messages from any chat.
+
 You can get your chat ID by sending a message to the bot and going to this URL to view the chat ID:
 
 `https://api.telegram.org/bot<TELEGRAM_TOKEN>/getUpdates`

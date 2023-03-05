@@ -13,9 +13,9 @@ class TimeoutJobData:
   text: str
 
 class Bot:
-  def __init__(self, gpt: GPTClient, chat_id: str|None, conversation_timeout: int|None):
+  def __init__(self, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None):
     self.__gpt = gpt
-    self.__chat_id = chat_id
+    self.__chat_ids = set(chat_ids)
     self.__conversation_timeout = conversation_timeout
     self.__timeout_jobs = {}
 
@@ -195,7 +195,7 @@ class Bot:
     logging.info(f"Regenerated chat {chat_id} with text '{message}'")
 
   def __check_chat(self, chat_id: int):
-    if self.__chat_id and chat_id != self.__chat_id:
+    if self.__chat_ids and not chat_id in self.__chat_ids:
       logging.info(f"Message received for chat {chat_id} but ignored because it's not the configured chat")
       return False
 
