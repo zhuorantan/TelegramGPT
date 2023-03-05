@@ -7,6 +7,7 @@ Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com
 - All the powers of ChatGPT
 - Conversation history just like the OG ChatGPT
 - Resume previous conversations
+- Regenerate response for last message
 
 ## Get Started
 
@@ -79,3 +80,4 @@ Simply send a message to the bot and it will reply with a ChatGPT response.
 
 - `/new`: Manually start a new conversation
 - `/history`: Show a list of all previous conversations. Tap the command at the beginning of each line to resume a specific conversation.
+- `/retry`: Regenerate response for last message

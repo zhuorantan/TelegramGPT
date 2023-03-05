@@ -28,6 +28,7 @@ class Bot:
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), self.__resume))
     app.add_handler(CommandHandler('new', self.__new_conversation))
     app.add_handler(CommandHandler('history', self.__show_conversation_history))
+    app.add_handler(CommandHandler('retry', self.__retry_last_message))
 
     app.run_polling()
 
@@ -36,6 +37,7 @@ class Bot:
     commands = [
       ('new', "Start a new conversation"),
       ('history', "Show previous conversations"),
+      ('retry', "Regenerate response for last message"),
     ]
     await app.bot.set_my_commands(commands)
     logging.info("Set command list")
@@ -64,8 +66,8 @@ class Bot:
 
     placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
     message, conversation = await self.__gpt.complete(chat_id, update.message.id, update.message.text)
-    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.message_id)
     sent_message = await context.bot.send_message(chat_id=chat_id, text=message.content)
+    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.message_id)
     self.__gpt.assign_message_id(message, sent_message.id)
 
     self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
@@ -171,6 +173,32 @@ class Bot:
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
     logging.info(f"Showed conversation history for chat {update.effective_chat.id}")
+
+  async def __retry_last_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+      logging.warning(f"Retry commmand received but ignored because it doesn't have a message")
+      return
+
+    chat_id = update.message.chat_id
+
+    if not self.__check_chat(chat_id):
+      return
+
+    placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
+
+    result = await self.__gpt.retry_last_message(chat_id)
+    if not result:
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=placeholder_message.id, text="No message to retry")
+      return
+    message, conversation = result
+
+    sent_message = await context.bot.send_message(chat_id=chat_id, text=message.content)
+    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.id)
+    self.__gpt.assign_message_id(message, sent_message.id)
+
+    self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
+
+    logging.info(f"Regenerated chat {chat_id} with text '{message}'")
 
   def __check_chat(self, chat_id: int):
     if self.__chat_id and chat_id != self.__chat_id:

@@ -27,6 +27,26 @@ class GPTClient:
 
     return (message, conversation)
 
+  async def retry_last_message(self, chat_id: int) -> tuple[Message, Conversation]|None:
+    conversation = self.__store.get_current_conversation(chat_id)
+
+    if not conversation:
+      return None
+
+    if conversation.last_message and conversation.last_message.role == Role.ASSISTANT:
+      self.__store.pop_message(conversation)
+
+    if not conversation.last_message or not conversation.last_message.role == Role.USER:
+      return None
+
+    message = await self.__request(conversation.messages)
+
+    logging.info(f"Retried message for chat {chat_id}, text: '{message}'")
+
+    self.__store.add_message(message, conversation)
+
+    return (message, conversation)
+
   def start_new(self, chat_id: int):
     self.__store.terminate_conversation(chat_id)
 

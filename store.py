@@ -67,3 +67,6 @@ class Store:
 
   def assign_message_id(self, message: Message, id: int):
     message.id = id
+
+  def pop_message(self, conversation: Conversation) -> Message:
+    return conversation.messages.pop()
