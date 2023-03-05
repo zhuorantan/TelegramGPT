@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import openai
-from models import Conversation, Message, Role
+from models import AssistantMessage, Conversation, Message, Role, SystemMessage, UserMessage
 from store import Store
 
 class GPTClient:
@@ -16,23 +16,24 @@ class GPTClient:
 
     openai.api_key = api_key
 
-  async def complete(self, chat_id: int, received_msg_id: int, sent_msg_id: int, text: str) -> tuple[Message, Conversation]:
+  async def complete(self, chat_id: int, received_msg_id: int, sent_msg_id: int, text: str) -> tuple[AssistantMessage, Conversation]:
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
 
-    conversation = self.__get_conversation(chat_id, Message(received_msg_id, Role.USER, text))
+    user_message = UserMessage(received_msg_id, text)
+    conversation = self.__get_conversation(chat_id, user_message)
 
     logging.debug(f"Current conversation for chat {chat_id}: {conversation}")
 
     text = await self.__request(conversation.messages)
-    message = Message(sent_msg_id, Role.ASSISTANT, text)
+    assistant_message = AssistantMessage(sent_msg_id, text, user_message)
 
-    logging.info(f"Completed message for chat {chat_id}, message: '{message}'")
+    logging.info(f"Completed message for chat {chat_id}, message: '{assistant_message}'")
 
-    self.__store.add_message(message, conversation)
+    self.__store.add_message(assistant_message, conversation)
 
-    return (message, conversation)
+    return (assistant_message, conversation)
 
-  async def retry_last_message(self, chat_id: int, sent_msg_id: int) -> tuple[Message, Conversation]|None:
+  async def retry_last_message(self, chat_id: int, sent_msg_id: int) -> tuple[AssistantMessage, Conversation]|None:
     conversation = self.__current_conversations.get(chat_id)
     if not conversation:
       return None
@@ -44,13 +45,13 @@ class GPTClient:
       return None
 
     text = await self.__request(conversation.messages)
-    message = Message(sent_msg_id, Role.ASSISTANT, text)
+    assistant_message = AssistantMessage(sent_msg_id, text, conversation.last_message)
 
-    logging.info(f"Retried message for chat {chat_id}, message: '{message}'")
+    logging.info(f"Retried message for chat {chat_id}, message: '{assistant_message}'")
 
-    self.__store.add_message(message, conversation)
+    self.__store.add_message(assistant_message, conversation)
 
-    return (message, conversation)
+    return (assistant_message, conversation)
 
   def start_new(self, chat_id: int):
     if not chat_id in self.__current_conversations:
@@ -67,7 +68,7 @@ class GPTClient:
   def get_all_conversations(self, chat_id: int) -> list[Conversation]:
     return self.__store.get_all_conversations(chat_id)
 
-  def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
+  def __get_conversation(self, chat_id: int, message: UserMessage) -> Conversation:
     conversation = self.__current_conversations.get(chat_id)
 
     if conversation:
@@ -85,10 +86,10 @@ class GPTClient:
 
     return conversation
 
-  async def __set_title(self, conversation: Conversation, message: Message):
+  async def __set_title(self, conversation: Conversation, message: UserMessage):
     prompt = 'You are a title generator. You will receive a message that initiates a conversation. You will reply with only the title of the conversation without any punctuation mark either at the begining or the end.'
     messages = [
-      Message(None, Role.SYSTEM, prompt),
+      SystemMessage(prompt),
       message,
     ]
 
