@@ -63,13 +63,14 @@ class Bot:
       return
 
     placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
-    text, conversation = await self.__gpt.complete(chat_id, update.message.text)
+    message, conversation = await self.__gpt.complete(chat_id, update.message.id, update.message.text)
     await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.message_id)
-    message = await context.bot.send_message(chat_id=chat_id, text=text)
+    sent_message = await context.bot.send_message(chat_id=chat_id, text=message.content)
+    self.__gpt.assign_message_id(message, sent_message.id)
 
-    self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, message.id, text))
+    self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
 
-    logging.info(f"Replied chat {chat_id} with text '{text}'")
+    logging.info(f"Replied chat {chat_id} with text '{message}'")
 
   async def __resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:

@@ -12,10 +12,10 @@ class GPTClient:
 
     openai.api_key = api_key
 
-  async def complete(self, chat_id: int, text: str):
+  async def complete(self, chat_id: int, message_id: int, text: str) -> tuple[Message, Conversation]:
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
 
-    conversation = self.__get_conversation(chat_id, Message(Role.USER, text))
+    conversation = self.__get_conversation(chat_id, Message(message_id, Role.USER, text))
 
     logging.debug(f"Current conversation for chat {chat_id}: {conversation}")
 
@@ -25,7 +25,7 @@ class GPTClient:
 
     self.__store.add_message(message, conversation)
 
-    return (message.content, conversation)
+    return (message, conversation)
 
   def start_new(self, chat_id: int):
     self.__store.terminate_conversation(chat_id)
@@ -35,6 +35,9 @@ class GPTClient:
 
   def get_all_conversations(self, chat_id: int) -> list[Conversation]:
     return self.__store.get_all_conversations(chat_id)
+
+  def assign_message_id(self, message: Message, id: int):
+    self.__store.assign_message_id(message, id)
 
   def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
     conversation = self.__store.get_current_conversation(chat_id)
@@ -49,19 +52,19 @@ class GPTClient:
       task.add_done_callback(self.__background_tasks.discard)
 
     if self.__max_message_count and len(conversation.messages) > self.__max_message_count:
-      conversation.messages = conversation.messages[-self.__max_message_count:]
+      self.__store.truncate_conversation(conversation, self.__max_message_count)
 
     return conversation
 
   async def __set_title(self, conversation: Conversation, message: Message):
     prompt = 'You are a title generator. You will receive a message that initiates a conversation. You will reply with only the title of the conversation without any punctuation mark either at the begining or the end.'
     messages = [
-      Message(Role.SYSTEM, prompt),
+      Message(None, Role.SYSTEM, prompt),
       message,
     ]
 
     title = (await self.__request(messages)).content
-    conversation.title = title
+    self.__store.set_title(conversation, title)
 
     logging.info(f"Set title for conversation {conversation}: '{title}'")
 
@@ -72,4 +75,4 @@ class GPTClient:
     )
     raw_message = response['choices'][0]['message']
 
-    return Message(raw_message['role'], raw_message['content'])
+    return Message(None, raw_message['role'], raw_message['content'])

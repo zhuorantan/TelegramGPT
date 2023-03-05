@@ -58,3 +58,12 @@ class Store:
       return
 
     self.__data[chat_id].current_conversation = None
+
+  def truncate_conversation(self, conversation: Conversation, max_message_count: int):
+    conversation.messages = conversation.messages[max_message_count:]
+
+  def set_title(self, conversation: Conversation, title: str):
+    conversation.title = title
+
+  def assign_message_id(self, message: Message, id: int):
+    message.id = id

@@ -9,6 +9,7 @@ class Role(str, Enum):
 
 @dataclass
 class Message:
+  id: int|None
   role: Role
   content: str
   timestamp: datetime = field(default_factory=datetime.now)
