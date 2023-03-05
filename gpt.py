@@ -5,10 +5,14 @@ from models import Conversation, Message, Role
 from store import Store
 
 class GPTClient:
+  __background_tasks: set[asyncio.Task]
+  __current_conversations: dict[int, Conversation]
+
   def __init__(self, api_key: str, max_message_count: int|None):
     self.__max_message_count = max_message_count
     self.__store = Store()
     self.__background_tasks = set()
+    self.__current_conversations = {}
 
     openai.api_key = api_key
 
@@ -28,8 +32,7 @@ class GPTClient:
     return (message, conversation)
 
   async def retry_last_message(self, chat_id: int) -> tuple[Message, Conversation]|None:
-    conversation = self.__store.get_current_conversation(chat_id)
-
+    conversation = self.__current_conversations.get(chat_id)
     if not conversation:
       return None
 
@@ -48,10 +51,16 @@ class GPTClient:
     return (message, conversation)
 
   def start_new(self, chat_id: int):
-    self.__store.terminate_conversation(chat_id)
+    if not chat_id in self.__current_conversations:
+      return
+    del self.__current_conversations[chat_id]
 
   def resume(self, chat_id: int, conversation_id: int) -> Conversation|None:
-    return self.__store.resume_conversation(chat_id, conversation_id)
+    conversation = self.__store.get_conversation(chat_id, conversation_id)
+    if conversation:
+      self.__current_conversations[chat_id] = conversation
+
+    return conversation
 
   def get_all_conversations(self, chat_id: int) -> list[Conversation]:
     return self.__store.get_all_conversations(chat_id)
@@ -60,12 +69,13 @@ class GPTClient:
     self.__store.assign_message_id(message, id)
 
   def __get_conversation(self, chat_id: int, message: Message) -> Conversation:
-    conversation = self.__store.get_current_conversation(chat_id)
+    conversation = self.__current_conversations.get(chat_id)
 
     if conversation:
       self.__store.add_message(message, conversation)
     else:
       conversation = self.__store.new_conversation(chat_id, message, None)
+      self.__current_conversations[chat_id] = conversation
 
       task = asyncio.create_task(self.__set_title(conversation, message))
       self.__background_tasks.add(task)
