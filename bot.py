@@ -64,11 +64,9 @@ class Bot:
     if not self.__check_chat(chat_id):
       return
 
-    placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
-    message, conversation = await self.__gpt.complete(chat_id, update.message.id, update.message.text)
-    sent_message = await context.bot.send_message(chat_id=chat_id, text=message.content)
-    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.message_id)
-    self.__gpt.assign_message_id(message, sent_message.id)
+    sent_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
+    message, conversation = await self.__gpt.complete(chat_id, update.message.id, sent_message.id, update.message.text)
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
 
     self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
 
@@ -184,17 +182,13 @@ class Bot:
     if not self.__check_chat(chat_id):
       return
 
-    placeholder_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
-
-    result = await self.__gpt.retry_last_message(chat_id)
+    sent_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
+    result = await self.__gpt.retry_last_message(chat_id, sent_message.id)
     if not result:
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=placeholder_message.id, text="No message to retry")
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="No message to retry")
       return
     message, conversation = result
-
-    sent_message = await context.bot.send_message(chat_id=chat_id, text=message.content)
-    await context.bot.delete_message(chat_id=chat_id, message_id=placeholder_message.id)
-    self.__gpt.assign_message_id(message, sent_message.id)
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
 
     self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
 

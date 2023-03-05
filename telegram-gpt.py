@@ -2,6 +2,7 @@ import argparse
 import logging
 from bot import Bot
 from gpt import GPTClient
+from store import Store
 
 logging.basicConfig(
   format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -18,7 +19,8 @@ if __name__ == "__main__":
   
   args = parser.parse_args()
 
-  gpt = GPTClient(args.openai_api_key, args.max_message_count)
+  store = Store()
+  gpt = GPTClient(args.openai_api_key, store, args.max_message_count)
 
   bot = Bot(gpt, args.chat_id, args.conversation_timeout)
   bot.run(args.telegram_token)
