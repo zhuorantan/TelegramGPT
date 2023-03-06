@@ -1,31 +1,34 @@
 import asyncio
 import logging
+from typing import cast
 import openai
 from models import AssistantMessage, Conversation, Message, Role, SystemMessage, UserMessage
 from store import Store
 
 class GPTClient:
   __background_tasks: set[asyncio.Task]
-  __current_conversations: dict[int, Conversation]
 
   def __init__(self, api_key: str, store: Store, max_message_count: int|None):
     self.__max_message_count = max_message_count
     self.__store = store
     self.__background_tasks = set()
-    self.__current_conversations = {}
 
     openai.api_key = api_key
 
-  async def complete(self, chat_id: int, received_msg_id: int, sent_msg_id: int, text: str) -> tuple[AssistantMessage, Conversation]:
+  async def complete(self, current_conversation_id: int|None, chat_id: int, received_msg_id: int, sent_msg_id: int, text: str) -> tuple[AssistantMessage, Conversation]:
     logging.info(f"Completing message for chat {chat_id}, text: '{text}'")
 
     user_message = UserMessage(received_msg_id, text)
-    conversation = self.__get_conversation(chat_id, user_message)
+    conversation = None
+    if current_conversation_id is not None:
+      conversation = self.__store.get_conversation(chat_id, current_conversation_id)
+    if not conversation:
+      conversation = self.__new_conversation(chat_id, user_message)
 
     logging.debug(f"Current conversation for chat {chat_id}: {conversation}")
 
     text = await self.__request(conversation.messages)
-    assistant_message = AssistantMessage(sent_msg_id, text, user_message)
+    assistant_message = AssistantMessage(sent_msg_id, text, user_message.id)
 
     logging.info(f"Completed message for chat {chat_id}, message: '{assistant_message}'")
 
@@ -33,11 +36,7 @@ class GPTClient:
 
     return (assistant_message, conversation)
 
-  async def retry_last_message(self, chat_id: int, sent_msg_id: int) -> tuple[AssistantMessage, Conversation]|None:
-    conversation = self.__current_conversations.get(chat_id)
-    if not conversation:
-      return None
-
+  async def retry_last_message(self, conversation: Conversation, sent_msg_id: int) -> tuple[AssistantMessage, Conversation]|None:
     if conversation.last_message and conversation.last_message.role == Role.ASSISTANT:
       self.__store.pop_message(conversation)
 
@@ -45,41 +44,26 @@ class GPTClient:
       return None
 
     text = await self.__request(conversation.messages)
-    assistant_message = AssistantMessage(sent_msg_id, text, conversation.last_message)
+    assistant_message = AssistantMessage(sent_msg_id, text, cast(UserMessage, conversation.last_message).id)
 
-    logging.info(f"Retried message for chat {chat_id}, message: '{assistant_message}'")
+    logging.info(f"Retried message for conversation {conversation.id}, message: '{assistant_message}'")
 
     self.__store.add_message(assistant_message, conversation)
 
     return (assistant_message, conversation)
 
-  def start_new(self, chat_id: int):
-    if not chat_id in self.__current_conversations:
-      return
-    del self.__current_conversations[chat_id]
-
-  def resume(self, chat_id: int, conversation_id: int) -> Conversation|None:
-    conversation = self.__store.get_conversation(chat_id, conversation_id)
-    if conversation:
-      self.__current_conversations[chat_id] = conversation
-
-    return conversation
-
   def get_all_conversations(self, chat_id: int) -> list[Conversation]:
     return self.__store.get_all_conversations(chat_id)
 
-  def __get_conversation(self, chat_id: int, message: UserMessage) -> Conversation:
-    conversation = self.__current_conversations.get(chat_id)
+  def get_conversation(self, chat_id: int, conversation_id: int) -> Conversation|None:
+    return self.__store.get_conversation(chat_id, conversation_id)
 
-    if conversation:
-      self.__store.add_message(message, conversation)
-    else:
-      conversation = self.__store.new_conversation(chat_id, message, None)
-      self.__current_conversations[chat_id] = conversation
+  def __new_conversation(self, chat_id: int, message: UserMessage) -> Conversation:
+    conversation = self.__store.new_conversation(chat_id, message, None)
 
-      task = asyncio.create_task(self.__set_title(conversation, message))
-      self.__background_tasks.add(task)
-      task.add_done_callback(self.__background_tasks.discard)
+    task = asyncio.create_task(self.__set_title(conversation, message))
+    self.__background_tasks.add(task)
+    task.add_done_callback(self.__background_tasks.discard)
 
     if self.__max_message_count and len(conversation.messages) > self.__max_message_count:
       self.__store.truncate_conversation(conversation, self.__max_message_count)

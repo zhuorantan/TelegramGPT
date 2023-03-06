@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import cast
 
 class Role(str, Enum):
   SYSTEM = 'system'
@@ -20,21 +19,21 @@ class SystemMessage(Message):
 
 class AssistantMessage(Message):
   id: int
+  replied_to_id: int
 
-  def __init__(self, id: int, content: str, replied_to: Message, timestamp: datetime|None = None):
+  def __init__(self, id: int, content: str, replied_to_id: int, timestamp: datetime|None = None):
     super().__init__(Role.ASSISTANT, content, timestamp or datetime.now())
     self.id = id
-    self.replied_to = replied_to
-    cast(UserMessage, replied_to).answer = self
+    self.replied_to_id = replied_to_id
 
 class UserMessage(Message):
   id: int
-  answer: Message|None
+  answer_id: int|None
 
   def __init__(self, id: int, content: str, timestamp: datetime|None = None):
     super().__init__(Role.USER, content, timestamp or datetime.now())
     self.id = id
-    self.answer = None
+    self.answer_id = None
 
 @dataclass
 class Conversation:

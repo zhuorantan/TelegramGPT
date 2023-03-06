@@ -4,13 +4,16 @@ from gpt import GPTClient
 from models import Conversation
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, JobQueue, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
-from typing import cast
+from typing import TypedDict, cast
 
 @dataclass
 class TimeoutJobData:
   conversation: Conversation
   message_id: int
   text: str
+
+class ChatData(TypedDict):
+  current_conversation_id: int|None
 
 class Bot:
   def __init__(self, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None):
@@ -65,7 +68,11 @@ class Bot:
       return
 
     sent_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
-    message, conversation = await self.__gpt.complete(chat_id, update.message.id, sent_message.id, update.message.text)
+    chat_data = cast(ChatData, context.chat_data)
+    current_conversation_id = chat_data.get('current_conversation_id', None)
+    message, conversation = await self.__gpt.complete(current_conversation_id, chat_id, update.message.id, sent_message.id, update.message.text)
+    chat_data['current_conversation_id'] = conversation.id
+    
     await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
 
     self.__add_timeout_task(context.job_queue, chat_id, TimeoutJobData(conversation, sent_message.id, message.content))
@@ -93,7 +100,8 @@ class Bot:
     else:
       raise Exception("Invalid parameters")
 
-    conversation = self.__gpt.resume(chat_id, conversation_id)
+    cast(ChatData, context.chat_data)['current_conversation_id'] = conversation_id
+    conversation = self.__gpt.get_conversation(chat_id, conversation_id)
     if not conversation:
       await context.bot.send_message(chat_id=chat_id, text="Failed to find that conversation. Try sending a new message.")
       return
@@ -107,7 +115,7 @@ class Bot:
 
   def __add_timeout_task(self, job_queue: JobQueue|None, chat_id: int, data: TimeoutJobData):
     if chat_id in self.__timeout_jobs:
-      if not self.__timeout_jobs[chat_id].removed:
+      if self.__timeout_jobs[chat_id].enabled:
         self.__timeout_jobs[chat_id].schedule_removal()
       del self.__timeout_jobs[chat_id]
 
@@ -126,8 +134,7 @@ class Bot:
     chat_id = context.job.chat_id
     data = cast(TimeoutJobData, context.job.data)
 
-    del self.__timeout_jobs[chat_id]
-    self.__gpt.start_new(chat_id)
+    cast(ChatData, context.chat_data)['current_conversation_id'] = None
 
     new_text = data.text + f"\n\nThis conversation has timed out and it was about \"{data.conversation.title}\". A new conversation has started."
     resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"resume_{data.conversation.id}")]])
@@ -144,7 +151,7 @@ class Bot:
     if not self.__check_chat(update.effective_chat.id):
       return
 
-    self.__gpt.start_new(update.effective_chat.id)
+    cast(ChatData, context.chat_data)['current_conversation_id'] = None
 
     timeout_job = self.__timeout_jobs.get(update.effective_chat.id)
     if timeout_job:
@@ -183,7 +190,13 @@ class Bot:
       return
 
     sent_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
-    result = await self.__gpt.retry_last_message(chat_id, sent_message.id)
+    current_conversation_id = cast(ChatData, context.chat_data).get('current_conversation_id')
+    result = None
+    if current_conversation_id:
+      current_conversation = self.__gpt.get_conversation(chat_id, current_conversation_id)
+      if current_conversation:
+        result = await self.__gpt.retry_last_message(current_conversation, sent_message.id)
+
     if not result:
       await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="No message to retry")
       return

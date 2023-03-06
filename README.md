@@ -8,6 +8,7 @@ Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com
 - Conversation history just like the OG ChatGPT
 - Resume previous conversations
 - Regenerate response for last message
+- Restrict bot to specific chats
 
 ## Get Started
 
@@ -49,7 +50,7 @@ services:
 
 - `--chat-id`
 
-Optionally set `--chat-id` to restrict the bot to a specific chat.
+Optionally set `--chat-id` to restrict the bot to specific chats.
 To allow multiple chats, set `--chat-id` multiple times.
 If no `--chat-id` is set, the bot will accept messages from any chat.
 
