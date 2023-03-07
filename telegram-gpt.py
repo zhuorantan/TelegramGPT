@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-from bot import Bot
+from bot import Bot, WebhookInfo
 from gpt import GPTClient
 
 logging.basicConfig(
@@ -17,11 +17,12 @@ if __name__ == "__main__":
   parser.add_argument('--conversation-timeout', type=int)
   parser.add_argument('--max-message-count', type=int)
   parser.add_argument('--data-dir', type=str, default='./data')
-  parser.add_argument('--webhook-address', type=int)
+  parser.add_argument('--webhook-listen-address', type=str)
+  parser.add_argument('--webhook-url', type=str)
   
   args = parser.parse_args()
 
   gpt = GPTClient(args.openai_api_key, args.max_message_count)
 
   bot = Bot(gpt, args.chat_id, args.conversation_timeout)
-  bot.run(args.telegram_token, os.path.join(args.data_dir, 'data'), args.webhook_address)
+  bot.run(args.telegram_token, os.path.join(args.data_dir, 'data'), WebhookInfo(args.webhook_listen_address, args.webhook_url))

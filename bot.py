@@ -15,6 +15,11 @@ class ChatState:
   timeout_task: asyncio.Task|None = None
   current_conversation: Conversation|None = None
 
+@dataclass
+class WebhookInfo:
+  listen_address: str
+  url: str|None
+
 class Bot:
   __chat_states: dict[int, ChatState]
 
@@ -24,7 +29,7 @@ class Bot:
     self.__conversation_timeout = conversation_timeout
     self.__chat_states = {}
 
-  def run(self, token: str, data_path: str, webhook_address: str|None):
+  def run(self, token: str, data_path: str, webhook_info: WebhookInfo|None):
     persistence = PicklePersistence(data_path)
     app = ApplicationBuilder().token(token).persistence(persistence).concurrent_updates(True).post_init(self.__post_init).build()
 
@@ -36,11 +41,12 @@ class Bot:
     app.add_handler(CommandHandler('history', self.__show_conversation_history))
     app.add_handler(CommandHandler('retry', self.__retry_last_message))
 
-    if webhook_address is not None:
-      parts = webhook_address.split(':')
+    if webhook_info:
+      parts = webhook_info.listen_address.split(':')
       host = parts[0]
       port = int(parts[1] if len(parts) > 1 else 80)
-      app.run_webhook(host, port)
+      url = webhook_info.url or f"https://{webhook_info.listen_address}"
+      app.run_webhook(host, port, webhook_url=url)
     else:
       app.run_polling()
 
