@@ -24,7 +24,7 @@ class Bot:
     self.__conversation_timeout = conversation_timeout
     self.__chat_states = {}
 
-  def run(self, token: str, data_path: str):
+  def run(self, token: str, data_path: str, webhook_address: str|None):
     persistence = PicklePersistence(data_path)
     app = ApplicationBuilder().token(token).persistence(persistence).concurrent_updates(True).post_init(self.__post_init).build()
 
@@ -36,7 +36,13 @@ class Bot:
     app.add_handler(CommandHandler('history', self.__show_conversation_history))
     app.add_handler(CommandHandler('retry', self.__retry_last_message))
 
-    app.run_polling()
+    if webhook_address is not None:
+      parts = webhook_address.split(':')
+      host = parts[0]
+      port = int(parts[1] if len(parts) > 1 else 80)
+      app.run_webhook(host, port)
+    else:
+      app.run_polling()
 
   @staticmethod
   async def __post_init(app: Application):

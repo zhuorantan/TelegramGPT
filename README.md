@@ -76,6 +76,18 @@ Tap the button to resume that conversation.
 
 Limit the number of messages to be sent to OpenAI API. Default is not set, which is unlimited.
 
+- `--data-dir`
+
+Set the directory to store conversation data. Default is `/app/data`.
+
+- `--webhook-address`
+
+The address to listen for webhook requests in the format of `<host>:<port>`. If not set, the bot will use polling.
+
+To use webhook mode, you need a public domain name. For more information, see [Marvin's Marvellous Guide to All Things Webhook](https://core.telegram.org/bots/webhooks).
+
+Since Telegram requires https for webhook, you need to use a reverse proxy like [Caddy](https://caddyserver.com/) or [Nginx](https://www.nginx.com/) to handle https traffic.
+
 
 > To use proxy, add `-e http_proxy=http://<proxy>:<port>` and `-e https_proxy=http://<proxy>:<port>` to the `docker run` command.
 For Docker Compose, add the environment variables to the `environment` section.
