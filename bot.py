@@ -34,7 +34,7 @@ class Bot:
     app = ApplicationBuilder().token(token).persistence(persistence).concurrent_updates(True).post_init(self.__post_init).build()
 
     app.add_handler(CommandHandler('start', self.__start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.__reply))
+    app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), self.__handle_message))
     app.add_handler(CallbackQueryHandler(self.__resume))
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), self.__resume))
     app.add_handler(CommandHandler('new', self.__new_conversation))
@@ -72,17 +72,17 @@ class Bot:
 
     logging.info(f"Start command executed for chat {update.effective_chat.id}")
 
-  async def __reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+  async def __handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
       logging.warning(f"Update received but ignored because it doesn't have a message")
       return
 
     chat_id = update.message.chat_id
-    chat_data = cast(ChatData, context.chat_data)
 
     if not self.__check_chat(chat_id):
       return
 
+    chat_data = cast(ChatData, context.chat_data)
     sent_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
 
     user_message = UserMessage(update.message.id, update.message.text)

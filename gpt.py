@@ -46,7 +46,7 @@ class GPTClient:
   def new_conversation(self, conversation_id: int, user_message: UserMessage) -> Conversation:
     conversation = Conversation(conversation_id, None, user_message.timestamp, [user_message])
 
-    task = asyncio.create_task(self.__set_title(conversation, user_message))
+    task = asyncio.create_task(self.__set_title(conversation))
     self.__background_tasks.add(task)
     task.add_done_callback(self.__background_tasks.discard)
 
@@ -55,12 +55,9 @@ class GPTClient:
 
     return conversation
 
-  async def __set_title(self, conversation: Conversation, message: UserMessage):
-    prompt = 'You are a title generator. You will receive a message that initiates a conversation. You will reply with only the title of the conversation without any punctuation mark either at the begining or the end.'
-    messages = [
-      SystemMessage(prompt),
-      message,
-    ]
+  async def __set_title(self, conversation: Conversation):
+    prompt = 'You are a title generator. You will receive one or multiple messages of a conversation. You will reply with only the title of the conversation without any punctuation mark either at the begining or the end.'
+    messages = [SystemMessage(prompt)] + conversation.messages
 
     title = await self.__request(messages)
     conversation.title = title
