@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from gpt import GPTClient
 from models import AssistantMessage, Conversation, Role, UserMessage
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, ExtBot, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from telegram.ext import Application, CallbackQueryHandler, ExtBot, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from typing import TypedDict, cast
 
 class ChatData(TypedDict):
@@ -24,8 +24,9 @@ class Bot:
     self.__conversation_timeout = conversation_timeout
     self.__chat_states = {}
 
-  def run(self, token: str):
-    app = ApplicationBuilder().token(token).concurrent_updates(True).post_init(self.__post_init).build()
+  def run(self, token: str, data_path: str):
+    persistence = PicklePersistence(data_path)
+    app = ApplicationBuilder().token(token).persistence(persistence).concurrent_updates(True).post_init(self.__post_init).build()
 
     app.add_handler(CommandHandler('start', self.__start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.__reply))

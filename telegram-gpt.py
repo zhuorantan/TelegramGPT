@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from bot import Bot
 from gpt import GPTClient
 
@@ -15,10 +16,11 @@ if __name__ == "__main__":
   parser.add_argument('--chat-id', action='append', type=int)
   parser.add_argument('--conversation-timeout', type=int)
   parser.add_argument('--max-message-count', type=int)
+  parser.add_argument('--data-dir', type=str, default='./data')
   
   args = parser.parse_args()
 
   gpt = GPTClient(args.openai_api_key, args.max_message_count)
 
   bot = Bot(gpt, args.chat_id, args.conversation_timeout)
-  bot.run(args.telegram_token)
+  bot.run(args.telegram_token, os.path.join(args.data_dir, 'data'))

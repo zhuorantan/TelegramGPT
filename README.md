@@ -6,9 +6,9 @@ Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com
 
 - All the powers of ChatGPT
 - Conversation history just like the OG ChatGPT
+- Restrict bot to specific chats
 - Resume previous conversations
 - Regenerate response for last message
-- Restrict bot to specific chats
 
 ## Get Started
 
@@ -26,8 +26,10 @@ Go to [OpenAI Dashboard](https://platform.openai.com/account/api-keys) and creat
 
 ```bash
 docker build -t telegram-gpt github.com/zhuorantan/TelegramGPT#main
-docker run --rm telegram-gpt --openai-api-key "<OPENAI_API_KEY>" --telegram-token "<TELEGRAM_TOKEN>"
+docker run --rm -v /path/to/data:/app/data telegram-gpt --openai-api-key "<OPENAI_API_KEY>" --telegram-token "<TELEGRAM_TOKEN>"
 ```
+
+> Note: If no directory is mapped to `/app/data`, all conversations will be lost after the container is recreated.
 
 #### Docker Compose
 
@@ -37,6 +39,8 @@ services:
     build: github.com/zhuorantan/TelegramGPT#main
     container_name: telegram-gpt
     restart: unless-stopped
+    volumes:
+      - /path/to/data:/app/data
     command:
       - --openai-api-key
       - "<OPENAI_API_KEY>"
