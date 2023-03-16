@@ -35,11 +35,12 @@ class Bot:
 
     app.add_handler(CommandHandler('start', self.__start))
     app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), self.__handle_message))
-    app.add_handler(CallbackQueryHandler(self.__resume))
+    app.add_handler(CallbackQueryHandler(self.__resume, pattern=r'^resume_\d+$'))
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), self.__resume))
     app.add_handler(CommandHandler('new', self.__new_conversation))
     app.add_handler(CommandHandler('history', self.__show_conversation_history))
     app.add_handler(CommandHandler('retry', self.__retry_last_message))
+    app.add_handler(CallbackQueryHandler(self.__retry_last_message, pattern='retry'))
 
     if webhook_info:
       parts = webhook_info.listen_address.split(':')
@@ -93,21 +94,26 @@ class Bot:
     else:
       conversation = self.__create_conversation(chat_id, chat_data, user_message)
 
-    message = await self.__gpt.complete(conversation, user_message, sent_message.id)
-    self.__get_chat_state(chat_id).current_conversation = conversation
+    try:
+      message = await self.__gpt.complete(conversation, user_message, sent_message.id)
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
+
+      logging.info(f"Replied chat {chat_id} with text '{message}'")
+    except Exception as e:
+      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Retry", callback_data=f"retry")]])
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Error generating response", reply_markup=retry_markup)
+      logging.error(f"Error generating response for chat {chat_id}: {e}")
     
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
+    self.__get_chat_state(chat_id).current_conversation = conversation
 
     self.__add_timeout_task(chat_id, context)
 
-    logging.info(f"Replied chat {chat_id} with text '{message}'")
-
   async def __retry_last_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-      logging.warning(f"Retry commmand received but ignored because it doesn't have a message")
+    if not update.effective_chat:
+      logging.warning(f"Resume command received but ignored because it doesn't have a chat")
       return
 
-    chat_id = update.message.chat_id
+    chat_id = update.effective_chat.id
 
     if not self.__check_chat(chat_id):
       return
@@ -118,16 +124,22 @@ class Bot:
       return
       
     sent_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
-    message = await self.__gpt.retry_last_message(conversation, sent_message.id)
-    if not message:
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="No message to retry")
-      return
 
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
+    try:
+      message = await self.__gpt.retry_last_message(conversation, sent_message.id)
+      if not message:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="No message to retry")
+        return
+
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
+
+      logging.info(f"Regenerated chat {chat_id} with text '{message}'")
+    except Exception as e:
+      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Retry", callback_data=f"retry")]])
+      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Error generating response", reply_markup=retry_markup)
+      logging.error(f"Error generating response for chat {chat_id}: {e}")
 
     self.__add_timeout_task(chat_id, context)
-
-    logging.info(f"Regenerated chat {chat_id} with text '{message}'")
 
   async def __resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
