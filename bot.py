@@ -1,294 +1,110 @@
-import asyncio
 import logging
 from dataclasses import dataclass
+from chat import ChatData, ChatManager, ChatState, ChatContext
 from gpt import GPTClient
-from models import AssistantMessage, Conversation, Role, UserMessage
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, ExtBot, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
-from typing import TypedDict, cast
+from telegram import Update
+from telegram.ext import Application, CallbackQueryHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from typing import cast
 
-class ChatData(TypedDict):
-  conversations: dict[int, Conversation]
+async def __state(_: Update, context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  chat_id = chat_manager.context.chat_id
 
-@dataclass
-class ChatState:
-  timeout_task: asyncio.Task|None = None
-  current_conversation: Conversation|None = None
+  await context.bot.send_message(chat_id=chat_id, text="Start by sending me a message!")
+
+  logging.info(f"Start command executed for chat {chat_id}")
+
+async def __handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  if not update.message or not update.message.text:
+    logging.warning(f"Update received but ignored because it doesn't have a message")
+    return
+
+  await chat_manager.handle_message(text=update.message.text)
+
+async def __retry_last_message(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  await chat_manager.retry_last_message()
+
+async def __resume(update: Update, _: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  conversation_id = None
+  query = update.callback_query
+
+  if query and query.data and query.data.startswith('resume_'):
+    await query.answer()
+    conversation_id = int(query.data.split('_')[1])
+  elif update.message and update.message.text and update.message.text.startswith('/resume_'):
+    conversation_id = int(update.message.text.split('_')[1])
+  else:
+    raise Exception("Invalid parameters")
+
+  await chat_manager.resume(conversation_id=conversation_id)
+
+async def __new_conversation(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  await chat_manager.new_conversation()
+
+async def __show_conversation_history(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+  await chat_manager.show_conversation_history()
 
 @dataclass
 class WebhookInfo:
   listen_address: str
   url: str|None
 
-class Bot:
-  __chat_states: dict[int, ChatState]
+async def __post_init(app: Application):
+  commands = [
+    ('new', "Start a new conversation"),
+    ('history', "Show previous conversations"),
+    ('retry', "Regenerate response for last message"),
+  ]
+  await app.bot.set_my_commands(commands)
+  logging.info("Set command list")
 
-  def __init__(self, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None):
-    self.__gpt = gpt
-    self.__chat_ids = set(chat_ids)
-    self.__conversation_timeout = conversation_timeout
-    self.__chat_states = {}
-
-  def run(self, token: str, data_path: str, webhook_info: WebhookInfo|None):
-    persistence = PicklePersistence(data_path)
-    app = ApplicationBuilder().token(token).persistence(persistence).concurrent_updates(True).post_init(self.__post_init).build()
-
-    app.add_handler(CommandHandler('start', self.__start))
-    app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), self.__handle_message))
-    app.add_handler(CallbackQueryHandler(self.__resume, pattern=r'^resume_\d+$'))
-    app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), self.__resume))
-    app.add_handler(CommandHandler('new', self.__new_conversation))
-    app.add_handler(CommandHandler('history', self.__show_conversation_history))
-    app.add_handler(CommandHandler('retry', self.__retry_last_message))
-    app.add_handler(CallbackQueryHandler(self.__retry_last_message, pattern='retry'))
-
-    if webhook_info:
-      parts = webhook_info.listen_address.split(':')
-      host = parts[0]
-      port = int(parts[1] if len(parts) > 1 else 80)
-      url = webhook_info.url or f"https://{webhook_info.listen_address}"
-      app.run_webhook(host, port, webhook_url=url)
-    else:
-      app.run_polling()
-
-  @staticmethod
-  async def __post_init(app: Application):
-    commands = [
-      ('new', "Start a new conversation"),
-      ('history', "Show previous conversations"),
-      ('retry', "Regenerate response for last message"),
-    ]
-    await app.bot.set_my_commands(commands)
-    logging.info("Set command list")
-
-  async def __start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+def __create_callback(gpt: GPTClient, allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
+  async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
-      logging.warning(f"Start command received but ignored because it doesn't have a chat")
-      return
-
-    if not self.__check_chat(update.effective_chat.id):
-      return
-
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Start by sending me a message!")
-
-    logging.info(f"Start command executed for chat {update.effective_chat.id}")
-
-  async def __handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-      logging.warning(f"Update received but ignored because it doesn't have a message")
-      return
-
-    chat_id = update.message.chat_id
-
-    if not self.__check_chat(chat_id):
-      return
-
-    chat_data = cast(ChatData, context.chat_data)
-    sent_message = await context.bot.send_message(chat_id=chat_id, text="Generating response...")
-
-    user_message = UserMessage(update.message.id, update.message.text)
-
-    conversation = self.__get_chat_state(chat_id).current_conversation
-    if conversation:
-      conversation.messages.append(user_message)
-    else:
-      conversation = self.__create_conversation(chat_id, chat_data, user_message)
-
-    try:
-      message = await self.__gpt.complete(conversation, user_message, sent_message.id)
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
-
-      logging.info(f"Replied chat {chat_id} with text '{message}'")
-    except Exception as e:
-      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Retry", callback_data=f"retry")]])
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Error generating response", reply_markup=retry_markup)
-      logging.error(f"Error generating response for chat {chat_id}: {e}")
-    
-    self.__get_chat_state(chat_id).current_conversation = conversation
-
-    self.__add_timeout_task(chat_id, context)
-
-  async def __retry_last_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_chat:
-      logging.warning(f"Resume command received but ignored because it doesn't have a chat")
+      logging.warning(f"Message received but ignored because it doesn't have a chat")
       return
 
     chat_id = update.effective_chat.id
 
-    if not self.__check_chat(chat_id):
-      return
-
-    conversation = self.__get_chat_state(chat_id).current_conversation
-    if not conversation:
-      await context.bot.send_message(chat_id=chat_id, text="No conversation to retry")
-      return
-      
-    sent_message = await context.bot.send_message(chat_id=chat_id, text="Regenerating response...")
-
-    try:
-      message = await self.__gpt.retry_last_message(conversation, sent_message.id)
-      if not message:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="No message to retry")
-        return
-
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=message.content)
-
-      logging.info(f"Regenerated chat {chat_id} with text '{message}'")
-    except Exception as e:
-      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Retry", callback_data=f"retry")]])
-      await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Error generating response", reply_markup=retry_markup)
-      logging.error(f"Error generating response for chat {chat_id}: {e}")
-
-    self.__add_timeout_task(chat_id, context)
-
-  async def __resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_chat:
-      logging.warning(f"Resume command received but ignored because it doesn't have a chat")
-      return
-
-    chat_id = update.effective_chat.id
-
-    if not self.__check_chat(chat_id):
-      return
-
-    conversation_id = None
-    query = update.callback_query
-
-    if query and query.data and query.data.startswith('resume_'):
-      await query.answer()
-      conversation_id = int(query.data.split('_')[1])
-    elif update.message and update.message.text and update.message.text.startswith('/resume_'):
-      conversation_id = int(update.message.text.split('_')[1])
-    else:
-      raise Exception("Invalid parameters")
-
-    conversation = self.__get_conversation(cast(ChatData, context.chat_data), conversation_id)
-    if not conversation:
-      await context.bot.send_message(chat_id=chat_id, text="Failed to find that conversation. Try sending a new message.")
-      return
-
-    text = f"Resuming conversation \"{conversation.title}\":"
-    await context.bot.send_message(chat_id=chat_id, text=text)
-
-    self.__get_chat_state(chat_id).current_conversation = conversation
-
-    self.__add_timeout_task(chat_id, context)
-
-    logging.info(f"Resumed conversation {conversation_id} for chat {chat_id}")
-
-  async def __new_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_chat:
-      logging.warning(f"New command received but ignored because it doesn't have a chat")
-      return
-
-    chat_id = update.effective_chat.id
-
-    if not self.__check_chat(chat_id):
-      return
-
-    chat_state = self.__get_chat_state(chat_id)
-
-    timeout_job = chat_state.timeout_task
-    if timeout_job:
-      timeout_job.cancel()
-      chat_state.timeout_task = None
-    await self.__expire_current_conversation(chat_id, context.bot)
-
-    await context.bot.send_message(chat_id=chat_id, text="Starting a new conversation.")
-
-    logging.info(f"Started a new conversation for chat {chat_id}")
-
-  async def __show_conversation_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_chat:
-      logging.warning(f"New command received but ignored because it doesn't have a chat")
-      return
-
-    if not self.__check_chat(update.effective_chat.id):
-      return
-
-    conversations = self.__get_all_conversations(cast(ChatData, context.chat_data))
-    text = '\n'.join(f"[/resume_{conversation.id}] {conversation.title} ({conversation.started_at:%Y-%m-%d %H:%M})" for conversation in conversations)
-
-    if not text:
-      text = "No conversation history"
-
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
-
-    logging.info(f"Showed conversation history for chat {update.effective_chat.id}")
-
-  def __add_timeout_task(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    chat_state = self.__get_chat_state(chat_id)
-      
-    last_task = chat_state.timeout_task
-    if last_task:
-      last_task.cancel()
-      chat_state.timeout_task = None
-
-    timeout = self.__conversation_timeout
-    if not timeout:
-      return
-
-    async def time_out_current_conversation():
-      await asyncio.sleep(timeout)
-      chat_state.timeout_task = None
-
-      await self.__expire_current_conversation(chat_id, context.bot)
-
-    chat_state.timeout_task = context.application.create_task(time_out_current_conversation())
-
-  async def __expire_current_conversation(self, chat_id: int, bot: ExtBot):
-    chat_state = self.__get_chat_state(chat_id)
-    current_conversation = chat_state.current_conversation
-    if not current_conversation:
-      return
-
-    self.__get_chat_state(chat_id).current_conversation = None
-
-    last_message = current_conversation.last_message
-    if not last_message or last_message.role != Role.ASSISTANT:
-      return
-    last_message = cast(AssistantMessage, last_message)
-
-    new_text = last_message.content + f"\n\nThis conversation has expired and it was about \"{current_conversation.title}\". A new conversation has started."
-    resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"resume_{current_conversation.id}")]])
-    await bot.edit_message_text(chat_id=chat_id, message_id=last_message.id, text=new_text, reply_markup=resume_markup)
-
-    logging.info(f"Conversation {current_conversation.id} timed out")
-
-  def __check_chat(self, chat_id: int):
-    if self.__chat_ids and not chat_id in self.__chat_ids:
+    if len(allowed_chat_ids) > 0 and not chat_id in allowed_chat_ids:
       logging.info(f"Message received for chat {chat_id} but ignored because it's not the configured chat")
-      return False
+      return
 
-    return True
+    if chat_id not in chat_states:
+      chat_states[chat_id] = ChatState()
+    chat_state = chat_states[chat_id]
+    chat_data = cast(ChatData, context.chat_data)
+    chat_context = ChatContext(chat_id, chat_state, chat_data)
 
-  def __create_conversation(self, chat_id: int, chat_data: ChatData, user_message: UserMessage) -> Conversation:
-    if 'conversations' not in chat_data:
-      chat_data['conversations'] = {}
+    chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
 
-    chat_state = self.__get_chat_state(chat_id)
-    current_conversation = chat_state.current_conversation
-    if current_conversation:
-      current_conversation.messages.append(user_message)
-      return current_conversation
-    else:
-      conversations = chat_data['conversations']
-      conversation = self.__gpt.new_conversation(len(conversations), user_message)
-      conversations[conversation.id] = conversation
+    await callback(update, context, chat_manager)
 
-      return conversation
+  return handler
 
-  def __get_all_conversations(self, chat_data: ChatData) -> list[Conversation]:
-    if 'conversations' not in chat_data:
-      chat_data['conversations'] = {}
-    return list(chat_data['conversations'].values())
+def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None, data_path: str, webhook_info: WebhookInfo|None):
+  allowed_chat_ids = set(chat_ids)
+  chat_states = {}
 
-  def __get_conversation(self, chat_data: ChatData, conversation_id: int) -> Conversation|None:
-    if 'conversations' not in chat_data:
-      chat_data['conversations'] = {}
-    return chat_data['conversations'].get(conversation_id)
+  def create_callback(callback):
+    return __create_callback(gpt, allowed_chat_ids, conversation_timeout, chat_states, callback)
 
-  def __get_chat_state(self, chat_id: int) -> ChatState:
-    if chat_id not in self.__chat_states:
-      self.__chat_states[chat_id] = ChatState()
-    return self.__chat_states[chat_id]
+  persistence = PicklePersistence(data_path)
+  app = ApplicationBuilder().token(token).persistence(persistence).post_init(__post_init).build()
+
+  app.add_handler(CommandHandler('start', create_callback(__state), block=False))
+  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^resume_\d+$', block=False))
+  app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), create_callback(__resume), block=False))
+  app.add_handler(CommandHandler('new', create_callback(__new_conversation), block=False))
+  app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
+  app.add_handler(CommandHandler('retry', create_callback(__retry_last_message), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__retry_last_message), pattern='retry', block=False))
+
+  if webhook_info:
+    parts = webhook_info.listen_address.split(':')
+    host = parts[0]
+    port = int(parts[1] if len(parts) > 1 else 80)
+    url = webhook_info.url or f"https://{webhook_info.listen_address}"
+    app.run_webhook(host, port, webhook_url=url)
+  else:
+    app.run_polling()
