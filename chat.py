@@ -59,6 +59,10 @@ class ChatManager:
     return wrapper
 
   @__async_queue
+  async def start(self):
+    await self.__bot.send_message(chat_id=self.context.chat_id, text="Start by sending me a message!")
+
+  @__async_queue
   async def new_conversation(self):
     chat_state = self.context.chat_state
     timeout_job = chat_state.timeout_task
@@ -115,6 +119,10 @@ class ChatManager:
     text = f"Resuming conversation \"{conversation.title}\":"
     await self.__bot.send_message(chat_id=chat_id, text=text)
 
+    last_message = conversation.last_message
+    if last_message:
+      await self.__bot.edit_message_text(chat_id=chat_id, message_id=last_message.id, text=last_message.content)
+
     self.context.chat_state.current_conversation = conversation
 
     self.__add_timeout_task()
@@ -141,7 +149,7 @@ class ChatManager:
 
       logging.info(f"Replied chat {chat_id} with text '{message}'")
     except Exception as e:
-      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Retry", callback_data=f"retry")]])
+      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='retry')]])
       await self.__bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text="Error generating response", reply_markup=retry_markup)
       logging.error(f"Error generating response for chat {chat_id}: {e}")
     
@@ -182,7 +190,7 @@ class ChatManager:
     last_message = cast(AssistantMessage, last_message)
 
     new_text = last_message.content + f"\n\nThis conversation has expired and it was about \"{current_conversation.title}\". A new conversation has started."
-    resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"resume_{current_conversation.id}")]])
+    resume_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Resume this conversation", callback_data=f"/resume_{current_conversation.id}")]])
     await self.__bot.edit_message_text(chat_id=self.context.chat_id, message_id=last_message.id, text=new_text, reply_markup=resume_markup)
 
     logging.info(f"Conversation {current_conversation.id} timed out")

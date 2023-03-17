@@ -6,28 +6,28 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from typing import cast
 
-async def __state(_: Update, context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __start(_: Update, chat_manager: ChatManager):
   chat_id = chat_manager.context.chat_id
 
-  await context.bot.send_message(chat_id=chat_id, text="Start by sending me a message!")
+  await chat_manager.start()
 
   logging.info(f"Start command executed for chat {chat_id}")
 
-async def __handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __handle_message(update: Update, chat_manager: ChatManager):
   if not update.message or not update.message.text:
     logging.warning(f"Update received but ignored because it doesn't have a message")
     return
 
   await chat_manager.handle_message(text=update.message.text)
 
-async def __retry_last_message(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __retry_last_message(_: Update, chat_manager: ChatManager):
   await chat_manager.retry_last_message()
 
-async def __resume(update: Update, _: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __resume(update: Update, chat_manager: ChatManager):
   conversation_id = None
   query = update.callback_query
 
-  if query and query.data and query.data.startswith('resume_'):
+  if query and query.data and query.data.startswith('/resume_'):
     await query.answer()
     conversation_id = int(query.data.split('_')[1])
   elif update.message and update.message.text and update.message.text.startswith('/resume_'):
@@ -37,10 +37,10 @@ async def __resume(update: Update, _: ContextTypes.DEFAULT_TYPE, chat_manager: C
 
   await chat_manager.resume(conversation_id=conversation_id)
 
-async def __new_conversation(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __new_conversation(_: Update, chat_manager: ChatManager):
   await chat_manager.new_conversation()
 
-async def __show_conversation_history(_: Update, _context: ContextTypes.DEFAULT_TYPE, chat_manager: ChatManager):
+async def __show_conversation_history(_: Update, chat_manager: ChatManager):
   await chat_manager.show_conversation_history()
 
 @dataclass
@@ -77,7 +77,7 @@ def __create_callback(gpt: GPTClient, allowed_chat_ids: set[int], conversation_t
 
     chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
 
-    await callback(update, context, chat_manager)
+    await callback(update, chat_manager)
 
   return handler
 
@@ -91,14 +91,18 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   persistence = PicklePersistence(data_path)
   app = ApplicationBuilder().token(token).persistence(persistence).post_init(__post_init).build()
 
-  app.add_handler(CommandHandler('start', create_callback(__state), block=False))
-  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
-  app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^resume_\d+$', block=False))
-  app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), create_callback(__resume), block=False))
+  app.add_handler(CommandHandler('start', create_callback(__start), block=False))
+
   app.add_handler(CommandHandler('new', create_callback(__new_conversation), block=False))
-  app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
+  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
+
   app.add_handler(CommandHandler('retry', create_callback(__retry_last_message), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__retry_last_message), pattern='retry', block=False))
+
+  app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), create_callback(__resume), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^\/resume_\d+$', block=False))
+
+  app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
 
   if webhook_info:
     parts = webhook_info.listen_address.split(':')
