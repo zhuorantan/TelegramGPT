@@ -1,15 +1,16 @@
+import asyncio
 import logging
 from dataclasses import dataclass
 from chat import ChatData, ChatManager, ChatState, ChatContext
 from gpt import GPTClient
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from telegram.ext import Application, CallbackQueryHandler, ConversationHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from typing import cast
 
 async def __start(_: Update, chat_manager: ChatManager):
   chat_id = chat_manager.context.chat_id
 
-  await chat_manager.start()
+  await chat_manager.bot.send_message(chat_id=chat_id, text="Start by sending me a message!")
 
   logging.info(f"Start command executed for chat {chat_id}")
 
@@ -53,11 +54,24 @@ async def __post_init(app: Application):
     ('new', "Start a new conversation"),
     ('history', "Show previous conversations"),
     ('retry', "Regenerate response for last message"),
+    ('editmodes', "Manage modes"),
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
 
-def __create_callback(gpt: GPTClient, allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
+def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
+  async def invoke(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    if chat_id not in chat_states:
+      chat_states[chat_id] = ChatState()
+    chat_state = chat_states[chat_id]
+
+    chat_data = cast(ChatData, context.chat_data)
+    chat_context = ChatContext(chat_id, chat_state, chat_data)
+
+    chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
+
+    await callback(update, chat_manager)
+
   async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
       logging.warning(f"Message received but ignored because it doesn't have a chat")
@@ -69,24 +83,28 @@ def __create_callback(gpt: GPTClient, allowed_chat_ids: set[int], conversation_t
       logging.info(f"Message received for chat {chat_id} but ignored because it's not the configured chat")
       return
 
-    if chat_id not in chat_states:
-      chat_states[chat_id] = ChatState()
-    chat_state = chat_states[chat_id]
-    chat_data = cast(ChatData, context.chat_data)
-    chat_context = ChatContext(chat_id, chat_state, chat_data)
+    current_task = chat_tasks.get(chat_id)
+    async def task():
+      if current_task:
+        await current_task
+      return await invoke(update, context, chat_id)
 
-    chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
+    chat_tasks[chat_id] = asyncio.create_task(task())
+    result = await chat_tasks[chat_id]
+    if chat_id in chat_tasks:
+      del chat_tasks[chat_id]
 
-    await callback(update, chat_manager)
+    return result
 
   return handler
 
 def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None, data_path: str, webhook_info: WebhookInfo|None):
+  chat_tasks = {}
   allowed_chat_ids = set(chat_ids)
   chat_states = {}
 
   def create_callback(callback):
-    return __create_callback(gpt, allowed_chat_ids, conversation_timeout, chat_states, callback)
+    return __create_callback(gpt, chat_tasks, allowed_chat_ids, conversation_timeout, chat_states, callback)
 
   persistence = PicklePersistence(data_path)
   app = ApplicationBuilder().token(token).persistence(persistence).post_init(__post_init).build()
