@@ -1,7 +1,8 @@
 import asyncio
+from enum import Enum
 import logging
-from dataclasses import dataclass
 from chat import ChatData, ChatManager, ChatState, ChatContext
+from dataclasses import dataclass
 from gpt import GPTClient
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ConversationHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
@@ -44,6 +45,55 @@ async def __new_conversation(_: Update, chat_manager: ChatManager):
 async def __show_conversation_history(_: Update, chat_manager: ChatManager):
   await chat_manager.show_conversation_history()
 
+async def __show_modes(_: Update, chat_manager: ChatManager):
+  await chat_manager.show_modes()
+
+
+class ModeEditState(Enum):
+  ADD_START = 0
+  ENTER_TITLE = 1
+  ENTER_PROMPT = 2
+
+async def __mode_add_start(_: Update, chat_manager: ChatManager) -> ModeEditState:
+  chat_id = chat_manager.context.chat_id
+  await chat_manager.bot.send_message(chat_id=chat_id, text="Enter a title for the new mode:")
+
+  return ModeEditState.ENTER_TITLE
+
+async def __mode_enter_title(update: Update, chat_manager: ChatManager) -> ModeEditState|None:
+  if not update.message or not update.message.text:
+    await chat_manager.bot.send_message(chat_id=chat_manager.context.chat_id, text="Invalid title. Please try again.")
+    logging.warning(f"Update received but ignored because it doesn't have a message")
+    return
+
+  chat_id = chat_manager.context.chat_id
+  chat_manager.context.chat_state.new_mode_title = update.message.text
+
+  await chat_manager.bot.send_message(chat_id=chat_id, text="Enter a prompt for the new mode:")
+
+  return ModeEditState.ENTER_PROMPT
+
+async def __mode_enter_prompt(update: Update, chat_manager: ChatManager) -> int|None:
+  if not update.message or not update.message.text:
+    await chat_manager.bot.send_message(chat_id=chat_manager.context.chat_id, text="Invalid prompt. Please try again.")
+    logging.warning(f"Update received but ignored because it doesn't have a message")
+    return
+
+  prompt = update.message.text
+  title = chat_manager.context.chat_state.new_mode_title
+  if not title:
+    raise Exception("Invalid state")
+
+  await chat_manager.add_mode(title, prompt)
+
+  return ConversationHandler.END
+
+async def __mode_add_cancel(_: Update, chat_manager: ChatManager) -> int:
+  await chat_manager.bot.send_message(chat_id=chat_manager.context.chat_id, text="Mode creation cancelled.")
+
+  return ConversationHandler.END
+
+
 @dataclass
 class WebhookInfo:
   listen_address: str
@@ -54,7 +104,8 @@ async def __post_init(app: Application):
     ('new', "Start a new conversation"),
     ('history', "Show previous conversations"),
     ('retry', "Regenerate response for last message"),
-    ('editmodes', "Manage modes"),
+    ('modes', "List available modes"),
+    ('addmode', "Add a new mode"),
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
@@ -70,7 +121,7 @@ def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allow
 
     chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
 
-    await callback(update, chat_manager)
+    return await callback(update, chat_manager)
 
   async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat:
@@ -98,7 +149,7 @@ def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allow
 
   return handler
 
-def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None, data_path: str, webhook_info: WebhookInfo|None):
+def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None, data_path: str|None, webhook_info: WebhookInfo|None):
   chat_tasks = {}
   allowed_chat_ids = set(chat_ids)
   chat_states = {}
@@ -106,13 +157,15 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   def create_callback(callback):
     return __create_callback(gpt, chat_tasks, allowed_chat_ids, conversation_timeout, chat_states, callback)
 
-  persistence = PicklePersistence(data_path)
-  app = ApplicationBuilder().token(token).persistence(persistence).post_init(__post_init).build()
+  app_builder = ApplicationBuilder().token(token).post_init(__post_init)
+  if data_path:
+    persistence = PicklePersistence(data_path)
+    app_builder.persistence(persistence)
+  app = app_builder.build()
 
   app.add_handler(CommandHandler('start', create_callback(__start), block=False))
 
   app.add_handler(CommandHandler('new', create_callback(__new_conversation), block=False))
-  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
 
   app.add_handler(CommandHandler('retry', create_callback(__retry_last_message), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__retry_last_message), pattern='retry', block=False))
@@ -121,6 +174,20 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^\/resume_\d+$', block=False))
 
   app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
+
+  app.add_handler((CommandHandler('modes', create_callback(__show_modes), block=False)))
+  app.add_handler(ConversationHandler(
+                    entry_points=[
+                      CommandHandler('addmode', create_callback(__mode_add_start), block=False),
+                    ],
+                    states={
+                      ModeEditState.ENTER_TITLE: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
+                      ModeEditState.ENTER_PROMPT: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
+                    },
+                    fallbacks=[CommandHandler('cancel', create_callback(__mode_add_cancel), block=False)]
+                  ))
+
+  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
 
   if webhook_info:
     parts = webhook_info.listen_address.split(':')

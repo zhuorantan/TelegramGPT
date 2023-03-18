@@ -9,12 +9,12 @@ class GPTClient:
 
     openai.api_key = api_key
 
-  async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int) -> AssistantMessage:
+  async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int, system_message: SystemMessage|None) -> AssistantMessage:
     logging.info(f"Completing message for conversation {conversation.id}, message: '{user_message}'")
 
     logging.debug(f"Current conversation for chat {conversation.id}: {conversation}")
 
-    text = await self.__request(conversation.messages)
+    text = await self.__request(([system_message] if system_message else []) + conversation.messages)
     assistant_message = AssistantMessage(sent_msg_id, text, user_message.id)
 
     conversation.messages.append(assistant_message)

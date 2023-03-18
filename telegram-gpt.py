@@ -16,13 +16,14 @@ if __name__ == "__main__":
   parser.add_argument('--chat-id', action='append', type=int)
   parser.add_argument('--conversation-timeout', type=int)
   parser.add_argument('--max-message-count', type=int)
-  parser.add_argument('--data-dir', type=str, default='./data')
+  parser.add_argument('--data-dir', type=str)
   parser.add_argument('--webhook-listen-address', type=str)
   parser.add_argument('--webhook-url', type=str)
   
   args = parser.parse_args()
 
   gpt = GPTClient(args.openai_api_key, args.max_message_count)
+  data_path = os.path.join(args.data_dir, 'data') if args.data_dir is not None else None
   webhook_info = WebhookInfo(args.webhook_listen_address, args.webhook_url) if args.webhook_listen_address is not None else None
 
-  run(args.telegram_token, gpt, args.chat_id, args.conversation_timeout, os.path.join(args.data_dir, 'data'), webhook_info)
+  run(args.telegram_token, gpt, args.chat_id, args.conversation_timeout, data_path, webhook_info)

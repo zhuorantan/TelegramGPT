@@ -2,20 +2,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from gpt import GPTClient
-from models import AssistantMessage, Conversation, Role, UserMessage
+from models import AssistantMessage, Conversation, Role, SystemMessage, UserMessage
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ExtBot
 from typing import TypedDict, cast
+from uuid import uuid4
+
+@dataclass
+class ConversationMode:
+  title: str
+  prompt: str
+  id: str = field(default_factory=lambda: str(uuid4()))
 
 class ChatData(TypedDict):
   conversations: dict[int, Conversation]
+  modes: dict[str, ConversationMode]
+  default_mode_id: str|None
 
 @dataclass
 class ChatState:
   timeout_task: asyncio.Task|None = None
   current_conversation: Conversation|None = None
+  new_mode_title: str|None = None
 
 @dataclass
 class ChatContext:
@@ -23,15 +33,41 @@ class ChatContext:
   chat_state: ChatState
   __chat_data: ChatData
 
-  def get_all_conversations(self) -> dict[int, Conversation]:
+  @property
+  def all_conversations(self) -> dict[int, Conversation]:
     if 'conversations' not in self.__chat_data:
       self.__chat_data['conversations'] = {}
     return self.__chat_data['conversations']
+
+  @property
+  def modes(self) -> dict[str, ConversationMode]:
+    if 'modes' not in self.__chat_data:
+      self.__chat_data['modes'] = {}
+    return self.__chat_data['modes']
+
+  @property
+  def default_prompt(self) -> SystemMessage|None:
+    default_mode_id = self.__chat_data.get('default_mode_id')
+    if not default_mode_id:
+      return None
+    mode = self.modes.get(default_mode_id)
+    if not mode:
+      return None
+
+    return SystemMessage(mode.prompt)
 
   def get_conversation(self, conversation_id: int) -> Conversation|None:
     if 'conversations' not in self.__chat_data:
       self.__chat_data['conversations'] = {}
     return self.__chat_data['conversations'].get(conversation_id)
+
+  def add_mode(self, mode: ConversationMode):
+    if 'modes' not in self.__chat_data:
+      self.__chat_data['modes'] = {}
+    self.__chat_data['modes'][mode.id] = mode
+
+  def set_default_mode(self, mode: ConversationMode):
+    self.__chat_data['default_mode_id'] = mode.id
 
 class ChatManager:
   def __init__(self, *, gpt: GPTClient, bot: ExtBot, context: ChatContext, conversation_timeout: int|None):
@@ -104,7 +140,7 @@ class ChatManager:
     logging.info(f"Resumed conversation {conversation.id} for chat {chat_id}")
 
   async def show_conversation_history(self):
-    conversations = list(self.context.get_all_conversations().values())
+    conversations = list(self.context.all_conversations.values())
     text = '\n'.join(f"[/resume_{conversation.id}] {conversation.title} ({conversation.started_at:%Y-%m-%d %H:%M})" for conversation in conversations)
 
     if not text:
@@ -114,10 +150,32 @@ class ChatManager:
 
     logging.info(f"Showed conversation history for chat {self.context.chat_id}")
 
+  async def add_mode(self, title: str, prompt: str):
+    mode = ConversationMode(title, prompt)
+    self.context.add_mode(mode)
+
+    if not self.context.default_prompt:
+      self.context.set_default_mode(mode)
+
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added and set as default.")
+    else:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added.")
+
+  async def show_modes(self):
+    modes = self.context.modes.values()
+    text = '\n'.join(f"• {mode.title}" for mode in modes)
+
+    if not text:
+      text = "No modes defined. Use /addmode to add a new mode."
+
+    await self.bot.send_message(chat_id=self.context.chat_id, text=text)
+
+    logging.info(f"Showed modes for chat {self.context.chat_id}")
+
   async def __complete(self, conversation: Conversation, sent_message_id: int):
     chat_id = self.context.chat_id
     try:
-      message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id)
+      message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, self.context.default_prompt)
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content)
 
       logging.info(f"Replied chat {chat_id} with text '{message}'")
@@ -174,7 +232,7 @@ class ChatManager:
       current_conversation.messages.append(user_message)
       return current_conversation
     else:
-      conversations = self.context.get_all_conversations()
+      conversations = self.context.all_conversations
       conversation = self.__gpt.new_conversation(len(conversations), user_message)
       conversations[conversation.id] = conversation
 
