@@ -26,6 +26,7 @@ class ChatState:
   timeout_task: asyncio.Task|None = None
   current_conversation: Conversation|None = None
   new_mode_title: str|None = None
+  editing_mode: ConversationMode|None = None
 
 @dataclass
 class ChatContext:
@@ -150,27 +151,80 @@ class ChatManager:
 
     logging.info(f"Showed conversation history for chat {self.context.chat_id}")
 
-  async def add_mode(self, title: str, prompt: str):
-    mode = ConversationMode(title, prompt)
-    self.context.add_mode(mode)
+  async def update_mode_title(self, title: str) -> bool:
+    if title in self.context.modes:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="A mode with that title already exists. Please provide a different title.")
+      return False
 
-    if not self.context.default_prompt:
-      self.context.set_default_mode(mode)
+    self.context.chat_state.new_mode_title = title
+    return True
 
-      await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added and set as default.")
+  async def add_or_edit_mode(self, prompt: str):
+    editing_mode = self.context.chat_state.editing_mode
+    if editing_mode:
+      editing_mode.prompt = prompt
+      self.context.chat_state.editing_mode = None
+
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Mode updated.")
     else:
-      await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added.")
+      title = self.context.chat_state.new_mode_title
+      self.context.chat_state.new_mode_title = None
+      if not title:
+        raise Exception("Invalid state")
+
+      mode = ConversationMode(title, prompt)
+      self.context.add_mode(mode)
+
+      if not self.context.default_prompt:
+        self.context.set_default_mode(mode)
+
+        await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added and set as default.")
+      else:
+        await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added.")
 
   async def show_modes(self):
     modes = self.context.modes.values()
-    text = '\n'.join(f"• {mode.title}" for mode in modes)
+    if modes:
+      text = '\n'.join(f"[/mode_{index}] {mode.title}" for index, mode in enumerate(modes))
+    else:
+      text = "No modes defined. Tap \"Add\" to add a new mode."
 
-    if not text:
-      text = "No modes defined. Use /addmode to add a new mode."
-
-    await self.bot.send_message(chat_id=self.context.chat_id, text=text)
+    reply_markup = InlineKeyboardMarkup([
+                                          [InlineKeyboardButton('Add', callback_data='/mode_add')],
+                                        ])
+    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
 
     logging.info(f"Showed modes for chat {self.context.chat_id}")
+
+  async def show_mode_detail(self, index: int):
+    mode = list(self.context.modes.values())[index]
+    if not mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
+      return
+
+    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Edit', callback_data=f"/mode_edit_{mode.id}"), InlineKeyboardButton('Delete', callback_data=f"/mode_delete_{mode.id}")]])
+    await self.bot.send_message(chat_id=self.context.chat_id, text=f"\"{mode.title}\":\n{mode.prompt}", reply_markup=reply_markup)
+
+  async def edit_mode(self, id: str) -> bool:
+    mode = self.context.modes.get(id)
+    if not mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
+      return False
+
+    self.context.chat_state.editing_mode = mode
+
+    await self.bot.send_message(chat_id=self.context.chat_id, text=f"Enter a new prompt for mode \"{mode.title}\":")
+    return True
+
+  async def delete_mode(self, id: str):
+    mode = self.context.modes.get(id)
+    if not mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
+      return
+
+    del self.context.modes[mode.id]
+
+    await self.bot.send_message(chat_id=self.context.chat_id, text=f"Deleted mode \"{mode.title}\".")
 
   async def __complete(self, conversation: Conversation, sent_message_id: int):
     chat_id = self.context.chat_id

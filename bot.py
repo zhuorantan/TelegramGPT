@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from gpt import GPTClient
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ConversationHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from telegram.warnings import PTBUserWarning
 from typing import cast
+from warnings import filterwarnings
 
 async def __start(_: Update, chat_manager: ChatManager):
   chat_id = chat_manager.context.chat_id
@@ -26,7 +28,6 @@ async def __retry_last_message(_: Update, chat_manager: ChatManager):
   await chat_manager.retry_last_message()
 
 async def __resume(update: Update, chat_manager: ChatManager):
-  conversation_id = None
   query = update.callback_query
 
   if query and query.data and query.data.startswith('/resume_'):
@@ -45,20 +46,55 @@ async def __new_conversation(_: Update, chat_manager: ChatManager):
 async def __show_conversation_history(_: Update, chat_manager: ChatManager):
   await chat_manager.show_conversation_history()
 
-async def __show_modes(_: Update, chat_manager: ChatManager):
+async def __list_modes(_: Update, chat_manager: ChatManager):
   await chat_manager.show_modes()
+
+async def __mode_show_detail(update: Update, chat_manager: ChatManager):
+  if update.message and update.message.text and update.message.text.startswith('/mode_'):
+    mode_index = int(update.message.text.split('_')[1])
+  else:
+    raise Exception("Invalid parameters")
+
+  await chat_manager.show_mode_detail(mode_index)
+
+async def __mode_delete(update: Update, chat_manager: ChatManager):
+  query = update.callback_query
+  if query and query.data and query.data.startswith('/mode_delete_'):
+    await query.answer()
+    mode_id = query.data[len('/mode_delete_'):]
+  else:
+    raise Exception("Invalid parameters")
+
+  await chat_manager.delete_mode(mode_id)
 
 
 class ModeEditState(Enum):
-  ADD_START = 0
+  INIT = 0
   ENTER_TITLE = 1
   ENTER_PROMPT = 2
 
-async def __mode_add_start(_: Update, chat_manager: ChatManager) -> ModeEditState:
+async def __mode_add_start(update: Update, chat_manager: ChatManager) -> ModeEditState:
   chat_id = chat_manager.context.chat_id
   await chat_manager.bot.send_message(chat_id=chat_id, text="Enter a title for the new mode:")
+  
+  query = update.callback_query
+  if query:
+    await query.answer()
 
   return ModeEditState.ENTER_TITLE
+
+async def __mode_edit_start(update: Update, chat_manager: ChatManager) -> ModeEditState|None:
+  query = update.callback_query
+  if query and query.data and query.data.startswith('/mode_edit_'):
+    await query.answer()
+    mode_id = query.data[len('/mode_edit_'):]
+  else:
+    raise Exception("Invalid parameters")
+
+  if not await chat_manager.edit_mode(mode_id):
+    return
+
+  return ModeEditState.ENTER_PROMPT
 
 async def __mode_enter_title(update: Update, chat_manager: ChatManager) -> ModeEditState|None:
   if not update.message or not update.message.text:
@@ -66,10 +102,10 @@ async def __mode_enter_title(update: Update, chat_manager: ChatManager) -> ModeE
     logging.warning(f"Update received but ignored because it doesn't have a message")
     return
 
-  chat_id = chat_manager.context.chat_id
-  chat_manager.context.chat_state.new_mode_title = update.message.text
+  if not await chat_manager.update_mode_title(update.message.text):
+    return
 
-  await chat_manager.bot.send_message(chat_id=chat_id, text="Enter a prompt for the new mode:")
+  await chat_manager.bot.send_message(chat_id=chat_manager.context.chat_id, text="Enter a prompt for the new mode:")
 
   return ModeEditState.ENTER_PROMPT
 
@@ -79,12 +115,7 @@ async def __mode_enter_prompt(update: Update, chat_manager: ChatManager) -> int|
     logging.warning(f"Update received but ignored because it doesn't have a message")
     return
 
-  prompt = update.message.text
-  title = chat_manager.context.chat_state.new_mode_title
-  if not title:
-    raise Exception("Invalid state")
-
-  await chat_manager.add_mode(title, prompt)
+  await chat_manager.add_or_edit_mode(update.message.text)
 
   return ConversationHandler.END
 
@@ -105,7 +136,6 @@ async def __post_init(app: Application):
     ('history', "Show previous conversations"),
     ('retry', "Regenerate response for last message"),
     ('modes', "List available modes"),
-    ('addmode', "Add a new mode"),
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
@@ -163,6 +193,8 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
     app_builder.persistence(persistence)
   app = app_builder.build()
 
+  filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
+
   app.add_handler(CommandHandler('start', create_callback(__start), block=False))
 
   app.add_handler(CommandHandler('new', create_callback(__new_conversation), block=False))
@@ -175,16 +207,20 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
 
   app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
 
-  app.add_handler((CommandHandler('modes', create_callback(__show_modes), block=False)))
+  app.add_handler(CommandHandler('modes', create_callback(__list_modes), block=False))
+  app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/mode_\d+'), create_callback(__mode_show_detail), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__mode_delete), pattern=r'\/mode_delete_.+', block=False))
+
   app.add_handler(ConversationHandler(
                     entry_points=[
-                      CommandHandler('addmode', create_callback(__mode_add_start), block=False),
+                      CallbackQueryHandler(create_callback(__mode_add_start), pattern=r'^\/mode_add$', block=False),
+                      CallbackQueryHandler(create_callback(__mode_edit_start), pattern=r'\/mode_edit_.+', block=False),
                     ],
                     states={
                       ModeEditState.ENTER_TITLE: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
                       ModeEditState.ENTER_PROMPT: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
                     },
-                    fallbacks=[CommandHandler('cancel', create_callback(__mode_add_cancel), block=False)]
+                    fallbacks=[CommandHandler('cancel', create_callback(__mode_add_cancel), block=False)],
                   ))
 
   app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
