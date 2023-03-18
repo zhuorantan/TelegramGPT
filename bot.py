@@ -67,6 +67,16 @@ async def __mode_delete(update: Update, chat_manager: ChatManager):
 
   await chat_manager.delete_mode(mode_id)
 
+async def __mode_toggle_default(update: Update, chat_manager: ChatManager):
+  query = update.callback_query
+  if query and query.data and query.data.startswith('/mode_toggle_default_'):
+    await query.answer()
+    mode_id = query.data[len('/mode_toggle_default_'):]
+  else:
+    raise Exception("Invalid parameters")
+
+  await chat_manager.toggle_default_mode(mode_id)
+
 
 class ModeEditState(Enum):
   INIT = 0
@@ -210,6 +220,7 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   app.add_handler(CommandHandler('modes', create_callback(__list_modes), block=False))
   app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/mode_\d+'), create_callback(__mode_show_detail), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_delete), pattern=r'\/mode_delete_.+', block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__mode_toggle_default), pattern=r'\/mode_toggle_default_.+', block=False))
 
   app.add_handler(ConversationHandler(
                     entry_points=[

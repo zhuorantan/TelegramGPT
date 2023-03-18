@@ -47,15 +47,11 @@ class ChatContext:
     return self.__chat_data['modes']
 
   @property
-  def default_prompt(self) -> SystemMessage|None:
+  def default_mode(self) -> ConversationMode|None:
     default_mode_id = self.__chat_data.get('default_mode_id')
     if not default_mode_id:
       return None
-    mode = self.modes.get(default_mode_id)
-    if not mode:
-      return None
-
-    return SystemMessage(mode.prompt)
+    return self.modes.get(default_mode_id)
 
   def get_conversation(self, conversation_id: int) -> Conversation|None:
     if 'conversations' not in self.__chat_data:
@@ -67,8 +63,8 @@ class ChatContext:
       self.__chat_data['modes'] = {}
     self.__chat_data['modes'][mode.id] = mode
 
-  def set_default_mode(self, mode: ConversationMode):
-    self.__chat_data['default_mode_id'] = mode.id
+  def set_default_mode(self, mode: ConversationMode|None):
+    self.__chat_data['default_mode_id'] = mode.id if mode else None
 
 class ChatManager:
   def __init__(self, *, gpt: GPTClient, bot: ExtBot, context: ChatContext, conversation_timeout: int|None):
@@ -175,7 +171,7 @@ class ChatManager:
       mode = ConversationMode(title, prompt)
       self.context.add_mode(mode)
 
-      if not self.context.default_prompt:
+      if not self.context.default_mode:
         self.context.set_default_mode(mode)
 
         await self.bot.send_message(chat_id=self.context.chat_id, text="Mode added and set as default.")
@@ -184,8 +180,10 @@ class ChatManager:
 
   async def show_modes(self):
     modes = self.context.modes.values()
+    default_mode = self.context.default_mode
+    default_mode_id = default_mode.id if default_mode else None
     if modes:
-      text = '\n'.join(f"[/mode_{index}] {mode.title}" for index, mode in enumerate(modes))
+      text = "Tap the command in front of the title to show details:\n" + '\n'.join(f"[/mode_{index}] {mode.title}{' (default)' if mode.id == default_mode_id else ''}" for index, mode in enumerate(modes))
     else:
       text = "No modes defined. Tap \"Add\" to add a new mode."
 
@@ -202,8 +200,27 @@ class ChatManager:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
       return
 
-    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Edit', callback_data=f"/mode_edit_{mode.id}"), InlineKeyboardButton('Delete', callback_data=f"/mode_delete_{mode.id}")]])
-    await self.bot.send_message(chat_id=self.context.chat_id, text=f"\"{mode.title}\":\n{mode.prompt}", reply_markup=reply_markup)
+    default_mode_id = self.context.default_mode.id if self.context.default_mode else None
+
+    text = f"Mode \"{mode.title}\":\n{mode.prompt}"
+    reply_markup = InlineKeyboardMarkup([
+                                          [InlineKeyboardButton('Unset as Default' if mode.id == default_mode_id else 'Set as Default', callback_data=f"/mode_toggle_default_{mode.id}")],
+                                          [InlineKeyboardButton('Edit', callback_data=f"/mode_edit_{mode.id}"), InlineKeyboardButton('Delete', callback_data=f"/mode_delete_{mode.id}")],
+                                        ])
+    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
+
+  async def toggle_default_mode(self, id: str):
+    mode = self.context.modes.get(id)
+    if not mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
+      return
+
+    if self.context.default_mode == mode:
+      self.context.set_default_mode(None)
+      await self.bot.send_message(chat_id=self.context.chat_id, text=f"Mode \"{mode.title}\" is no longer the default mode.")
+    else:
+      self.context.set_default_mode(mode)
+      await self.bot.send_message(chat_id=self.context.chat_id, text=f"Mode \"{mode.title}\" is now the default mode.")
 
   async def edit_mode(self, id: str) -> bool:
     mode = self.context.modes.get(id)
@@ -229,7 +246,8 @@ class ChatManager:
   async def __complete(self, conversation: Conversation, sent_message_id: int):
     chat_id = self.context.chat_id
     try:
-      message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, self.context.default_prompt)
+      default_prompt = SystemMessage(self.context.default_mode.prompt) if self.context.default_mode else None
+      message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, default_prompt)
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content)
 
       logging.info(f"Replied chat {chat_id} with text '{message}'")
