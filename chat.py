@@ -25,8 +25,10 @@ class ChatData(TypedDict):
 class ChatState:
   timeout_task: asyncio.Task|None = None
   current_conversation: Conversation|None = None
+
   new_mode_title: str|None = None
   editing_mode: ConversationMode|None = None
+  current_mode: ConversationMode|None = None
 
 @dataclass
 class ChatContext:
@@ -45,6 +47,10 @@ class ChatContext:
     if 'modes' not in self.__chat_data:
       self.__chat_data['modes'] = {}
     return self.__chat_data['modes']
+
+  @property
+  def effective_mode(self) -> ConversationMode|None:
+    return self.chat_state.current_mode or self.default_mode
 
   @property
   def default_mode(self) -> ConversationMode|None:
@@ -81,7 +87,11 @@ class ChatManager:
       chat_state.timeout_task = None
     await self.__expire_current_conversation()
 
-    await self.bot.send_message(chat_id=self.context.chat_id, text="Starting a new conversation.")
+    default_mode = self.context.default_mode
+    if default_mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text=f"Started a new conversation in mode \"{default_mode.title}\". Send /mode to change mode.")
+    else:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Started a new conversation without mode. Send /editmodes to create a new mode.")
 
     logging.info(f"Started a new conversation for chat {self.context.chat_id}")
 
@@ -131,6 +141,7 @@ class ChatManager:
       await self.bot.edit_message_text(chat_id=chat_id, message_id=last_message.id, text=last_message.content)
 
     self.context.chat_state.current_conversation = conversation
+    self.context.chat_state.current_mode = None
 
     self.__add_timeout_task()
 
@@ -146,6 +157,28 @@ class ChatManager:
     await self.bot.send_message(chat_id=self.context.chat_id, text=text)
 
     logging.info(f"Showed conversation history for chat {self.context.chat_id}")
+
+  async def list_modes_for_selection(self):
+    modes = list(self.context.modes.values())
+
+    if not modes:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="No modes available. Send /editmodes to create a new mode.")
+      return
+
+    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes])
+    await self.bot.send_message(chat_id=self.context.chat_id, text="Select a mode:", reply_markup=reply_markup)
+
+  async def select_mode(self, mode_id: str):
+    mode = self.context.modes.get(mode_id)
+    if not mode:
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Failed to find that mode. Try sending a new message.")
+      return
+
+    self.context.chat_state.current_mode = mode
+
+    await self.bot.send_message(chat_id=self.context.chat_id, text=f"Changed the mode of the current conversation to \"{mode.title}\".")
+
+    logging.info(f"Selected mode {mode.id} for chat {self.context.chat_id}")
 
   async def update_mode_title(self, title: str) -> bool:
     if title in self.context.modes:
@@ -246,7 +279,7 @@ class ChatManager:
   async def __complete(self, conversation: Conversation, sent_message_id: int):
     chat_id = self.context.chat_id
     try:
-      default_prompt = SystemMessage(self.context.default_mode.prompt) if self.context.default_mode else None
+      default_prompt = SystemMessage(self.context.effective_mode.prompt) if self.context.effective_mode else None
       message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, default_prompt)
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content)
 
@@ -286,6 +319,7 @@ class ChatManager:
       return
 
     chat_state.current_conversation = None
+    chat_state.current_mode = None
 
     last_message = current_conversation.last_message
     if not last_message or last_message.role != Role.ASSISTANT:
