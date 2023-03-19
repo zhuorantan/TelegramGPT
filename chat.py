@@ -168,8 +168,10 @@ class ChatManager:
       await self.bot.send_message(chat_id=self.context.chat_id, text="No modes available. Send /addmode to create a new mode.")
       return
 
+    current_mode = self.context.effective_mode
+    text = f"Current mode: \"{current_mode.title}\". Change to mode:" if current_mode else "Select a mode:"
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes])
-    await self.bot.send_message(chat_id=self.context.chat_id, text="Select a mode:", reply_markup=reply_markup)
+    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
 
   async def select_mode(self, mode_id: str, sent_message_id: int):
     mode = self.context.modes.get(mode_id)
