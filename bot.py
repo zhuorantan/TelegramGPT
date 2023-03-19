@@ -24,7 +24,12 @@ async def __handle_message(update: Update, chat_manager: ChatManager):
 
   await chat_manager.handle_message(text=update.message.text)
 
-async def __retry_last_message(_: Update, chat_manager: ChatManager):
+async def __retry_last_message(update: Update, chat_manager: ChatManager):
+  query = update.callback_query
+  if query:
+    await query.answer()
+    if query.message:
+      await chat_manager.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
   await chat_manager.retry_last_message()
 
 async def __resume(update: Update, chat_manager: ChatManager):
@@ -46,7 +51,9 @@ async def __new_conversation(_: Update, chat_manager: ChatManager):
 async def __show_conversation_history(_: Update, chat_manager: ChatManager):
   await chat_manager.show_conversation_history()
 
-async def __set_mode(_: Update, chat_manager: ChatManager):
+async def __set_mode(update: Update, chat_manager: ChatManager):
+  if update.callback_query:
+    await update.callback_query.answer()
   await chat_manager.list_modes_for_selection()
 
 async def __edit_modes(_: Update, chat_manager: ChatManager):

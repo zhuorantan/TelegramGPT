@@ -46,5 +46,6 @@ class GPTClient:
     response = openai.ChatCompletion.create(
       model='gpt-3.5-turbo',
       messages=[{'role': message.role, 'content': message.content} for message in messages],
+      timeout=30,
     )
     return response['choices'][0]['message']['content']
