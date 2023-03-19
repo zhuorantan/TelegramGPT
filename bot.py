@@ -64,33 +64,33 @@ async def __mode_show_detail(update: Update, chat_manager: ChatManager):
 
 async def __mode_select(update: Update, chat_manager: ChatManager):
   query = update.callback_query
-  if query and query.data and query.data.startswith('/mode_select_'):
+  if query and query.data and query.data.startswith('/mode_select_') and query.message:
     await query.answer()
     mode_id = query.data[len('/mode_select_'):]
   else:
     raise Exception("Invalid parameters")
 
-  await chat_manager.select_mode(mode_id)
+  await chat_manager.select_mode(mode_id, query.message.id)
 
 async def __mode_delete(update: Update, chat_manager: ChatManager):
   query = update.callback_query
-  if query and query.data and query.data.startswith('/mode_delete_'):
+  if query and query.data and query.data.startswith('/mode_delete_') and query.message:
     await query.answer()
     mode_id = query.data[len('/mode_delete_'):]
   else:
     raise Exception("Invalid parameters")
 
-  await chat_manager.delete_mode(mode_id)
+  await chat_manager.delete_mode(mode_id, query.message.id)
 
 async def __mode_toggle_default(update: Update, chat_manager: ChatManager):
   query = update.callback_query
-  if query and query.data and query.data.startswith('/mode_toggle_default_'):
+  if query and query.data and query.data.startswith('/mode_toggle_default_') and query.message:
     await query.answer()
     mode_id = query.data[len('/mode_toggle_default_'):]
   else:
     raise Exception("Invalid parameters")
 
-  await chat_manager.toggle_default_mode(mode_id)
+  await chat_manager.toggle_default_mode(mode_id, query.message.id)
 
 
 class ModeEditState(Enum):
@@ -223,7 +223,7 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   app.add_handler(CommandHandler('new', create_callback(__new_conversation), block=False))
 
   app.add_handler(CommandHandler('retry', create_callback(__retry_last_message), block=False))
-  app.add_handler(CallbackQueryHandler(create_callback(__retry_last_message), pattern='retry', block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__retry_last_message), pattern=r'^/retry$', block=False))
 
   app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/resume_\d+'), create_callback(__resume), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^\/resume_\d+$', block=False))
@@ -231,6 +231,7 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
 
   app.add_handler(CommandHandler('mode', create_callback(__set_mode), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__set_mode), pattern=r'^/mode$', block=False))
   app.add_handler(CommandHandler('editmodes', create_callback(__edit_modes), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_show_detail), pattern=r'\/mode_detail_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_select), pattern=r'\/mode_select_.+', block=False))

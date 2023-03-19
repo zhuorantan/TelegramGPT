@@ -89,9 +89,12 @@ class ChatManager:
 
     default_mode = self.context.default_mode
     if default_mode:
-      await self.bot.send_message(chat_id=self.context.chat_id, text=f"Started a new conversation in mode \"{default_mode.title}\". Send /mode to change mode.")
+      text = f"Started a new conversation in mode \"{default_mode.title}\"."
     else:
-      await self.bot.send_message(chat_id=self.context.chat_id, text="Started a new conversation without mode. Send /addmode to create a new mode.")
+      text = "Started a new conversation without mode. Send /addmode to create a new mode, or /editmodes to set a mode as default."
+
+    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Change mode", callback_data="/mode")]])
+    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
 
     logging.info(f"Started a new conversation for chat {self.context.chat_id}")
 
@@ -168,7 +171,7 @@ class ChatManager:
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes])
     await self.bot.send_message(chat_id=self.context.chat_id, text="Select a mode:", reply_markup=reply_markup)
 
-  async def select_mode(self, mode_id: str):
+  async def select_mode(self, mode_id: str, sent_message_id: int):
     mode = self.context.modes.get(mode_id)
     if not mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Failed to find that mode. Try sending a new message.")
@@ -176,7 +179,8 @@ class ChatManager:
 
     self.context.chat_state.current_mode = mode
 
-    await self.bot.send_message(chat_id=self.context.chat_id, text=f"Changed the mode of the current conversation to \"{mode.title}\".")
+    text = f"Changed the mode of the current conversation to \"{mode.title}\"."
+    await self.bot.edit_message_text(chat_id=self.context.chat_id, message_id=sent_message_id, text=text)
 
     logging.info(f"Selected mode {mode.id} for chat {self.context.chat_id}")
 
@@ -226,7 +230,7 @@ class ChatManager:
 
     logging.info(f"Showed modes for chat {self.context.chat_id}")
 
-  async def show_mode_detail(self, id: str):
+  async def show_mode_detail(self, id: str, send_message_id: int|None = None):
     mode = self.context.modes.get(id)
     if not mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
@@ -239,9 +243,12 @@ class ChatManager:
                                           [InlineKeyboardButton('Unset as Default' if mode.id == default_mode_id else 'Set as Default', callback_data=f"/mode_toggle_default_{mode.id}")],
                                           [InlineKeyboardButton('Edit', callback_data=f"/mode_edit_{mode.id}"), InlineKeyboardButton('Delete', callback_data=f"/mode_delete_{mode.id}")],
                                         ])
-    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
+    if send_message_id is not None:
+      await self.bot.edit_message_text(chat_id=self.context.chat_id, message_id=send_message_id, text=text, reply_markup=reply_markup)
+    else:
+      await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
 
-  async def toggle_default_mode(self, id: str):
+  async def toggle_default_mode(self, id: str, sent_message_id: int):
     mode = self.context.modes.get(id)
     if not mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
@@ -254,6 +261,8 @@ class ChatManager:
       self.context.set_default_mode(mode)
       await self.bot.send_message(chat_id=self.context.chat_id, text=f"Mode \"{mode.title}\" is now the default mode.")
 
+    await self.show_mode_detail(id, sent_message_id)
+
   async def edit_mode(self, id: str) -> bool:
     mode = self.context.modes.get(id)
     if not mode:
@@ -265,7 +274,7 @@ class ChatManager:
     await self.bot.send_message(chat_id=self.context.chat_id, text=f"Enter a new prompt for mode \"{mode.title}\":")
     return True
 
-  async def delete_mode(self, id: str):
+  async def delete_mode(self, id: str, sent_message_id: int):
     mode = self.context.modes.get(id)
     if not mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
@@ -273,7 +282,8 @@ class ChatManager:
 
     del self.context.modes[mode.id]
 
-    await self.bot.send_message(chat_id=self.context.chat_id, text=f"Deleted mode \"{mode.title}\".")
+    text = f"Mode \"{mode.title}\" deleted."
+    await self.bot.edit_message_text(chat_id=self.context.chat_id, message_id=sent_message_id, text=text)
 
   async def __complete(self, conversation: Conversation, sent_message_id: int):
     chat_id = self.context.chat_id
@@ -284,7 +294,7 @@ class ChatManager:
 
       logging.info(f"Replied chat {chat_id} with text '{message}'")
     except Exception as e:
-      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='retry')]])
+      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='/retry')]])
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text="Error generating response", reply_markup=retry_markup)
       logging.error(f"Error generating response for chat {chat_id}: {e}")
     
