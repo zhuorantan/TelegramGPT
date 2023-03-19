@@ -153,6 +153,8 @@ class ChatManager:
     if not text:
       text = "No conversation history"
 
+    logging.info(f"Sending history for chat {self.context.chat_id}: {text}")
+
     await self.bot.send_message(chat_id=self.context.chat_id, text=text)
 
     logging.info(f"Showed conversation history for chat {self.context.chat_id}")

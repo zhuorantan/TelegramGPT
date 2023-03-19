@@ -196,7 +196,10 @@ def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allow
     current_task = chat_tasks.get(chat_id)
     async def task():
       if current_task:
-        await current_task
+        try:
+          await current_task
+        except Exception as e:
+          logging.warn(f"Error {e} in previous task for chat {chat_id}")
       return await invoke(update, context, chat_id)
 
     chat_tasks[chat_id] = asyncio.create_task(task())
