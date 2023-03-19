@@ -53,12 +53,14 @@ async def __edit_modes(_: Update, chat_manager: ChatManager):
   await chat_manager.show_modes()
 
 async def __mode_show_detail(update: Update, chat_manager: ChatManager):
-  if update.message and update.message.text and update.message.text.startswith('/mode_'):
-    mode_index = int(update.message.text.split('_')[1])
+  query = update.callback_query
+  if query and query.data and query.data.startswith('/mode_detail_'):
+    await query.answer()
+    mode_id = query.data[len('/mode_detail_'):]
   else:
     raise Exception("Invalid parameters")
 
-  await chat_manager.show_mode_detail(mode_index)
+  await chat_manager.show_mode_detail(mode_id)
 
 async def __mode_select(update: Update, chat_manager: ChatManager):
   query = update.callback_query
@@ -96,13 +98,9 @@ class ModeEditState(Enum):
   ENTER_TITLE = 1
   ENTER_PROMPT = 2
 
-async def __mode_add_start(update: Update, chat_manager: ChatManager) -> ModeEditState:
+async def __mode_add_start(_: Update, chat_manager: ChatManager) -> ModeEditState:
   chat_id = chat_manager.context.chat_id
   await chat_manager.bot.send_message(chat_id=chat_id, text="Enter a title for the new mode:")
-  
-  query = update.callback_query
-  if query:
-    await query.answer()
 
   return ModeEditState.ENTER_TITLE
 
@@ -160,6 +158,7 @@ async def __post_init(app: Application):
     ('retry', "Regenerate response for last message"),
     ('mode', "Select a mode for current conversation"),
     ('editmodes', "Manage modes"),
+    ('addmode', "Create a new mode"),
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
@@ -233,14 +232,14 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
 
   app.add_handler(CommandHandler('mode', create_callback(__set_mode), block=False))
   app.add_handler(CommandHandler('editmodes', create_callback(__edit_modes), block=False))
-  app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'\/mode_\d+'), create_callback(__mode_show_detail), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__mode_show_detail), pattern=r'\/mode_detail_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_select), pattern=r'\/mode_select_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_delete), pattern=r'\/mode_delete_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_toggle_default), pattern=r'\/mode_toggle_default_.+', block=False))
 
   app.add_handler(ConversationHandler(
                     entry_points=[
-                      CallbackQueryHandler(create_callback(__mode_add_start), pattern=r'^\/mode_add$', block=False),
+                      CommandHandler('addmode', create_callback(__mode_add_start), block=False),
                       CallbackQueryHandler(create_callback(__mode_edit_start), pattern=r'\/mode_edit_.+', block=False),
                     ],
                     states={

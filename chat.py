@@ -91,7 +91,7 @@ class ChatManager:
     if default_mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text=f"Started a new conversation in mode \"{default_mode.title}\". Send /mode to change mode.")
     else:
-      await self.bot.send_message(chat_id=self.context.chat_id, text="Started a new conversation without mode. Send /editmodes to create a new mode.")
+      await self.bot.send_message(chat_id=self.context.chat_id, text="Started a new conversation without mode. Send /addmode to create a new mode.")
 
     logging.info(f"Started a new conversation for chat {self.context.chat_id}")
 
@@ -162,7 +162,7 @@ class ChatManager:
     modes = list(self.context.modes.values())
 
     if not modes:
-      await self.bot.send_message(chat_id=self.context.chat_id, text="No modes available. Send /editmodes to create a new mode.")
+      await self.bot.send_message(chat_id=self.context.chat_id, text="No modes available. Send /addmode to create a new mode.")
       return
 
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes])
@@ -215,20 +215,19 @@ class ChatManager:
     modes = self.context.modes.values()
     default_mode = self.context.default_mode
     default_mode_id = default_mode.id if default_mode else None
-    if modes:
-      text = "Tap the command in front of the title to show details:\n" + '\n'.join(f"[/mode_{index}] {mode.title}{' (default)' if mode.id == default_mode_id else ''}" for index, mode in enumerate(modes))
-    else:
-      text = "No modes defined. Tap \"Add\" to add a new mode."
 
-    reply_markup = InlineKeyboardMarkup([
-                                          [InlineKeyboardButton('Add', callback_data='/mode_add')],
-                                        ])
-    await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
+    if modes:
+      text = "Select a mode to edit:"
+      reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(f"{mode.title}{' (default)' if mode.id == default_mode_id else ''}", callback_data=f"/mode_detail_{mode.id}")] for mode in modes])
+      await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
+    else:
+      text = "No modes defined. Send /addmode to add a new mode."
+      await self.bot.send_message(chat_id=self.context.chat_id, text=text)
 
     logging.info(f"Showed modes for chat {self.context.chat_id}")
 
-  async def show_mode_detail(self, index: int):
-    mode = list(self.context.modes.values())[index]
+  async def show_mode_detail(self, id: str):
+    mode = self.context.modes.get(id)
     if not mode:
       await self.bot.send_message(chat_id=self.context.chat_id, text="Invalid mode.")
       return
