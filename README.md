@@ -78,7 +78,7 @@ Limit the number of messages to be sent to OpenAI API. Default is not set, which
 
 - `--data-dir`
 
-Set the directory to store conversation data. Default is `/app/data`.
+Set the directory to store conversation data. If not set, data won't be persisted.
 
 - `--webhook-listen-address`
 

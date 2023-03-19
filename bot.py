@@ -79,6 +79,15 @@ async def __mode_select(update: Update, chat_manager: ChatManager):
 
   await chat_manager.select_mode(mode_id, query.message.id)
 
+async def __mode_clear(update: Update, chat_manager: ChatManager):
+  query = update.callback_query
+  if query and query.message:
+    await query.answer()
+  else:
+    raise Exception("Invalid parameters")
+
+  await chat_manager.select_mode(None, query.message.id)
+
 async def __mode_delete(update: Update, chat_manager: ChatManager):
   query = update.callback_query
   if query and query.data and query.data.startswith('/mode_delete_') and query.message:
@@ -88,16 +97,6 @@ async def __mode_delete(update: Update, chat_manager: ChatManager):
     raise Exception("Invalid parameters")
 
   await chat_manager.delete_mode(mode_id, query.message.id)
-
-async def __mode_toggle_default(update: Update, chat_manager: ChatManager):
-  query = update.callback_query
-  if query and query.data and query.data.startswith('/mode_toggle_default_') and query.message:
-    await query.answer()
-    mode_id = query.data[len('/mode_toggle_default_'):]
-  else:
-    raise Exception("Invalid parameters")
-
-  await chat_manager.toggle_default_mode(mode_id, query.message.id)
 
 
 class ModeEditState(Enum):
@@ -242,8 +241,8 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
   app.add_handler(CommandHandler('editmodes', create_callback(__edit_modes), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_show_detail), pattern=r'\/mode_detail_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_select), pattern=r'\/mode_select_.+', block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__mode_clear), pattern=r'^\/mode_clear$', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_delete), pattern=r'\/mode_delete_.+', block=False))
-  app.add_handler(CallbackQueryHandler(create_callback(__mode_toggle_default), pattern=r'\/mode_toggle_default_.+', block=False))
 
   app.add_handler(ConversationHandler(
                     entry_points=[
