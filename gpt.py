@@ -51,5 +51,5 @@ class GPTClient:
       model='gpt-3.5-turbo',
       messages=[{'role': message.role, 'content': message.content} for message in messages],
     )
-    response = await asyncio.wait_for(task, 30)
+    response = await asyncio.wait_for(task, 60)
     return cast(dict, response)['choices'][0]['message']['content']

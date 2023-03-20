@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from gpt import GPTClient
 from models import AssistantMessage, Conversation, Role, SystemMessage, UserMessage
+from speech import SpeechClient
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ExtBot
 from typing import TypedDict, cast
@@ -68,8 +69,9 @@ class ChatContext:
     self.__chat_data['current_mode_id'] = mode.id if mode else None
 
 class ChatManager:
-  def __init__(self, *, gpt: GPTClient, bot: ExtBot, context: ChatContext, conversation_timeout: int|None):
+  def __init__(self, *, gpt: GPTClient, speech: SpeechClient|None, bot: ExtBot, context: ChatContext, conversation_timeout: int|None):
     self.__gpt = gpt
+    self.__speech = speech
     self.bot = bot
     self.context = context
     self.__conversation_timeout = conversation_timeout
@@ -105,6 +107,34 @@ class ChatManager:
       conversation = self.__create_conversation(user_message)
 
     await self.__complete(conversation, sent_message.id)
+
+    return conversation
+
+  async def handle_audio(self, *, audio: bytearray, user_message_id: int):
+    chat_id = self.context.chat_id
+    if not self.__speech:
+      await self.bot.send_message(chat_id=chat_id, text="Speech recognition is not available for this chat.")
+      return
+
+    sent_message = await self.bot.send_message(chat_id=chat_id, text="Recognizing audio...", reply_to_message_id=user_message_id)
+    text = await self.__speech.speech_to_text(audio=audio)
+
+    logging.info(f"Recognized audio: \"{text}\" for chat {chat_id}")
+
+    if not text:
+      await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Could not recognize audio")
+      return
+
+    await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=f"You said: \"{text}\"")
+    conversation = await self.handle_message(text=text)
+
+    if not conversation.last_message or not conversation.last_message.role == Role.ASSISTANT:
+      return
+
+    logging.info(f"Generating audio for chat {chat_id} for message \"{conversation.last_message.content}\"")
+
+    speech_content = await self.__speech.text_to_speech(text=conversation.last_message.content)
+    await self.bot.send_voice(chat_id=chat_id, voice=speech_content, reply_to_message_id=conversation.last_message.id)
 
   async def retry_last_message(self):
     chat_id = self.context.chat_id
@@ -268,6 +298,10 @@ class ChatManager:
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content)
 
       logging.info(f"Replied chat {chat_id} with text '{message}'")
+    except TimeoutError:
+      retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='/retry')]])
+      await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text="Generation timed out.", reply_markup=retry_markup)
+      logging.info(f"Timed out generating response for chat {chat_id}")
     except Exception as e:
       retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='/retry')]])
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text="Error generating response", reply_markup=retry_markup)

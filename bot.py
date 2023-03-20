@@ -1,9 +1,10 @@
 import asyncio
-from enum import Enum
 import logging
 from chat import ChatData, ChatManager, ChatState, ChatContext
 from dataclasses import dataclass
+from enum import Enum
 from gpt import GPTClient
+from speech import SpeechClient
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ConversationHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from telegram.warnings import PTBUserWarning
@@ -23,6 +24,18 @@ async def __handle_message(update: Update, chat_manager: ChatManager):
     return
 
   await chat_manager.handle_message(text=update.message.text)
+
+async def __handle_audio(update: Update, chat_manager: ChatManager):
+  if not update.message or not update.message.voice:
+    logging.warning(f"Update received but ignored because it doesn't have a message")
+    return
+
+  file = await update.message.voice.get_file()
+  audio = await file.download_as_bytearray()
+
+  logging.info(f"Received audio from chat {chat_manager.context.chat_id}")
+
+  await chat_manager.handle_audio(audio=audio, user_message_id=update.message.id)
 
 async def __retry_last_message(update: Update, chat_manager: ChatManager):
   query = update.callback_query
@@ -169,7 +182,7 @@ async def __post_init(app: Application):
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
 
-def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
+def __create_callback(gpt: GPTClient, speech: SpeechClient|None, chat_tasks: dict[int, asyncio.Task], allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
   async def invoke(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     if chat_id not in chat_states:
       chat_states[chat_id] = ChatState()
@@ -178,7 +191,7 @@ def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allow
     chat_data = cast(ChatData, context.chat_data)
     chat_context = ChatContext(chat_id, chat_state, chat_data)
 
-    chat_manager = ChatManager(gpt=gpt, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
+    chat_manager = ChatManager(gpt=gpt, speech=speech, bot=context.bot, context=chat_context, conversation_timeout=conversation_timeout)
 
     return await callback(update, chat_manager)
 
@@ -211,13 +224,13 @@ def __create_callback(gpt: GPTClient, chat_tasks: dict[int, asyncio.Task], allow
 
   return handler
 
-def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: int|None, data_path: str|None, webhook_info: WebhookInfo|None):
+def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[int], conversation_timeout: int|None, data_path: str|None, webhook_info: WebhookInfo|None):
   chat_tasks = {}
   allowed_chat_ids = set(chat_ids)
   chat_states = {}
 
   def create_callback(callback):
-    return __create_callback(gpt, chat_tasks, allowed_chat_ids, conversation_timeout, chat_states, callback)
+    return __create_callback(gpt, speech, chat_tasks, allowed_chat_ids, conversation_timeout, chat_states, callback)
 
   app_builder = ApplicationBuilder().token(token).post_init(__post_init)
   if data_path:
@@ -253,13 +266,14 @@ def run(token: str, gpt: GPTClient, chat_ids: list[int], conversation_timeout: i
                       CallbackQueryHandler(create_callback(__mode_edit_start), pattern=r'\/mode_edit_.+', block=False),
                     ],
                     states={
-                      ModeEditState.ENTER_TITLE: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
-                      ModeEditState.ENTER_PROMPT: [MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
+                      ModeEditState.ENTER_TITLE: [MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
+                      ModeEditState.ENTER_PROMPT: [MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
                     },
                     fallbacks=[CommandHandler('cancel', create_callback(__mode_add_cancel), block=False)],
                   ))
 
-  app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
+  app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__handle_message), block=False))
+  app.add_handler(MessageHandler(filters.VOICE, create_callback(__handle_audio), block=False))
 
   if webhook_info:
     parts = webhook_info.listen_address.split(':')
