@@ -15,7 +15,7 @@ class SpeechClient:
     return (await response.json())['DisplayText']
 
   async def text_to_speech(self, text: str) -> bytes:
-    name = 'en-US-JennyMultilingualNeural'
+    name = 'en-US-AriaNeural'
 
     headers = {
       'Ocp-Apim-Subscription-Key': self.__key,
@@ -23,9 +23,11 @@ class SpeechClient:
       'X-Microsoft-OutputFormat': 'ogg-48khz-16bit-mono-opus',
     }
     data = f"""
-    <speak version='1.0' xml:lang='en-US'>
-      <voice xml:gender='Female' name='{name}'>
-        {text}
+    <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
+      <voice xml:gender="Female" name="{name}">
+        <mstts:express-as style="chat">
+          {text}
+        </mstts:express-as>
       </voice>
     </speak>
     """

@@ -117,7 +117,13 @@ class ChatManager:
       return
 
     sent_message = await self.bot.send_message(chat_id=chat_id, text="Recognizing audio...", reply_to_message_id=user_message_id)
-    text = await self.__speech.speech_to_text(audio=audio)
+
+    try:
+      text = await self.__speech.speech_to_text(audio=audio)
+    except Exception as e:
+      await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text="Could not recognize audio")
+      logging.warning(f"Could not recognize audio for chat {chat_id}: {e}")
+      return
 
     logging.info(f"Recognized audio: \"{text}\" for chat {chat_id}")
 
@@ -133,7 +139,13 @@ class ChatManager:
 
     logging.info(f"Generating audio for chat {chat_id} for message \"{conversation.last_message.content}\"")
 
-    speech_content = await self.__speech.text_to_speech(text=conversation.last_message.content)
+    try:
+      speech_content = await self.__speech.text_to_speech(text=conversation.last_message.content)
+    except Exception as e:
+      await self.bot.send_message(chat_id=chat_id, text="Could not generate audio", reply_to_message_id=conversation.last_message.id)
+      logging.warning(f"Could not generate audio for chat {chat_id}: {e}")
+      return
+
     await self.bot.send_voice(chat_id=chat_id, voice=speech_content, reply_to_message_id=conversation.last_message.id)
 
   async def retry_last_message(self):
