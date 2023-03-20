@@ -5,6 +5,7 @@ Telegram bot for ChatGPT using [official OpenAI API](https://platform.openai.com
 ## Features
 
 - All the powers of ChatGPT
+- Voice messages powered by Azure Cognitive Services
 - Conversation history just like the OG ChatGPT
 - Restrict bot to specific chats
 - Resume previous conversations
@@ -91,6 +92,16 @@ To use webhook mode, you need a public domain name. For more information, see [M
 The URL to use for webhook requests. It is only used when `--webhook-listen-address` is set. If not set, the bot will default to `https://<webhook_listen_address>`.
 
 Since Telegram requires https for webhook, you need to use a reverse proxy like [Caddy](https://caddyserver.com/) or [Nginx](https://www.nginx.com/) to handle https traffic.
+
+- `--azure-speech-key`
+
+Set the Azure Speech API key to enable voice messages. If not set, voice messages will be disabled.
+
+Follow [this guide](https://learn.microsoft.com/en-us/azure/cognitive-services/speech-service/get-started-text-to-speech) to create a Speech resource and get the key.
+
+- `--azure-speech-region`
+
+Set the Azure Speech API region. Default is `westus`.
 
 #### Proxy
 
