@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import openai
+from aiohttp import ClientSession
 from models import AssistantMessage, Conversation, Message, SystemMessage, UserMessage
 from typing import cast
 
@@ -9,6 +10,7 @@ class GPTClient:
     self.__max_message_count = max_message_count
 
     openai.api_key = api_key
+    openai.aiosession.set(ClientSession(trust_env=True, timeout=30))
 
   async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int, system_message: SystemMessage|None) -> AssistantMessage:
     logging.info(f"Completing message for conversation {conversation.id}, message: '{user_message}'")
@@ -44,10 +46,8 @@ class GPTClient:
     return conversation
 
   async def __request(self, messages: list[Message]) -> str:
-    async def task():
-      return openai.ChatCompletion.create(
-        model='gpt-3.5-turbo',
-        messages=[{'role': message.role, 'content': message.content} for message in messages],
-      )
-    response = await asyncio.wait_for(task(), timeout=30)
+    response = await openai.ChatCompletion.acreate(
+      model='gpt-3.5-turbo',
+      messages=[{'role': message.role, 'content': message.content} for message in messages],
+    )
     return cast(dict, response)['choices'][0]['message']['content']
