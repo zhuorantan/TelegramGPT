@@ -23,7 +23,7 @@ async def __handle_message(update: Update, chat_manager: ChatManager):
     logging.warning(f"Update received but ignored because it doesn't have a message")
     return
 
-  await chat_manager.handle_message(text=update.message.text)
+  await chat_manager.handle_message(text=update.message.text, user_message_id=update.message.id)
 
 async def __handle_audio(update: Update, chat_manager: ChatManager):
   if not update.message or not update.message.voice:
@@ -63,6 +63,13 @@ async def __new_conversation(_: Update, chat_manager: ChatManager):
 
 async def __show_conversation_history(_: Update, chat_manager: ChatManager):
   await chat_manager.show_conversation_history()
+
+async def __read_out_message(update: Update, chat_manager: ChatManager):
+  if not update.message or not update.message.reply_to_message:
+    await chat_manager.bot.send_message(chat_id=chat_manager.context.chat_id, text="Please reply to a message to read it out loud")
+    return
+
+  await chat_manager.read_out_message(message_id=update.message.reply_to_message.id)
 
 async def __set_mode(update: Update, chat_manager: ChatManager):
   if update.callback_query:
@@ -176,6 +183,7 @@ async def __post_init(app: Application):
     ('history', "Show previous conversations"),
     ('retry', "Regenerate response for last message"),
     ('mode', "Select a mode for current chat and manage modes"),
+    ('say', "Read out message sent by the bot by replying to it")
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
@@ -249,6 +257,7 @@ def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[in
   app.add_handler(CallbackQueryHandler(create_callback(__resume), pattern=r'^\/resume_\d+$', block=False))
 
   app.add_handler(CommandHandler('history', create_callback(__show_conversation_history), block=False))
+  app.add_handler(CommandHandler('say', create_callback(__read_out_message), block=False))
 
   app.add_handler(CommandHandler('mode', create_callback(__set_mode), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__set_mode), pattern=r'^/mode$', block=False))

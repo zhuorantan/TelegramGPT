@@ -95,10 +95,10 @@ class ChatManager:
 
     logging.info(f"Started a new conversation for chat {self.context.chat_id}")
 
-  async def handle_message(self, *, text: str):
+  async def handle_message(self, *, text: str, user_message_id: int):
     sent_message = await self.bot.send_message(chat_id=self.context.chat_id, text="Generating response...")
 
-    user_message = UserMessage(sent_message.id, text)
+    user_message = UserMessage(user_message_id, text)
 
     conversation = self.context.chat_state.current_conversation
     if conversation:
@@ -132,21 +132,12 @@ class ChatManager:
       return
 
     await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message.id, text=f"You said: \"{text}\"")
-    conversation = await self.handle_message(text=text)
+    conversation = await self.handle_message(text=text, user_message_id=user_message_id)
 
     if not conversation.last_message or not conversation.last_message.role == Role.ASSISTANT:
       return
 
-    logging.info(f"Generating audio for chat {chat_id} for message \"{conversation.last_message.content}\"")
-
-    try:
-      speech_content = await self.__speech.text_to_speech(text=conversation.last_message.content)
-    except Exception as e:
-      await self.bot.send_message(chat_id=chat_id, text="Could not generate audio", reply_to_message_id=conversation.last_message.id)
-      logging.warning(f"Could not generate audio for chat {chat_id}: {e}")
-      return
-
-    await self.bot.send_voice(chat_id=chat_id, voice=speech_content, reply_to_message_id=conversation.last_message.id)
+    await self.__read_out_message(cast(AssistantMessage, conversation.last_message))
 
   async def retry_last_message(self):
     chat_id = self.context.chat_id
@@ -200,6 +191,25 @@ class ChatManager:
     await self.bot.send_message(chat_id=self.context.chat_id, text=text)
 
     logging.info(f"Showed conversation history for chat {self.context.chat_id}")
+
+  async def read_out_message(self, *, message_id: int):
+    chat_id = self.context.chat_id
+
+    current_conversation = self.context.chat_state.current_conversation
+    if not current_conversation:
+      await self.bot.send_message(chat_id=chat_id, text="Can only read out messages in current conversation.")
+      return
+
+    message = next((message for message in current_conversation.messages if message.id == message_id), None)
+    if not message:
+      await self.bot.send_message(chat_id=chat_id, text="Could not find that message.")
+      return
+
+    if message.role != Role.ASSISTANT:
+      await self.bot.send_message(chat_id=chat_id, text="Can only read out messages sent by the bot.")
+      return
+
+    await self.__read_out_message(cast(AssistantMessage, message))
 
   async def list_modes_for_selection(self):
     modes = list(self.context.modes.values())
@@ -323,6 +333,24 @@ class ChatManager:
     self.context.chat_state.current_conversation = conversation
 
     self.__add_timeout_task()
+
+  async def __read_out_message(self, message: AssistantMessage):
+    chat_id = self.context.chat_id
+
+    if not self.__speech:
+      await self.bot.send_message(chat_id=chat_id, text="Speech recognition is not available for this chat.")
+      return
+
+    logging.info(f"Generating audio for chat {chat_id} for message \"{message.content}\"")
+
+    try:
+      speech_content = await self.__speech.text_to_speech(text=message.content)
+    except Exception as e:
+      await self.bot.send_message(chat_id=chat_id, text="Could not generate audio", reply_to_message_id=message.id)
+      logging.warning(f"Could not generate audio for chat {chat_id}: {e}")
+      return
+
+    await self.bot.send_voice(chat_id=chat_id, voice=speech_content, reply_to_message_id=message.id)
 
   def __add_timeout_task(self):
     chat_state = self.context.chat_state

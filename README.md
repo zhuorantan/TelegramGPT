@@ -115,6 +115,7 @@ Simply send a message to the bot and it will reply with a ChatGPT response.
 ### Commands
 
 - `/new`: Manually start a new conversation
-- `/history`: Show a list of all previous conversations. Tap the command at the beginning of each line to resume a specific conversation.
+- `/history`: Show a list of all previous conversations. Tap the command at the beginning of each line to resume a specific conversation
 - `/retry`: Regenerate response for last message
 - `/mode`: Change current mode and manage modes
+- `/say`: Read out a message sent by the bot
