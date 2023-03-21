@@ -117,6 +117,4 @@ Simply send a message to the bot and it will reply with a ChatGPT response.
 - `/new`: Manually start a new conversation
 - `/history`: Show a list of all previous conversations. Tap the command at the beginning of each line to resume a specific conversation.
 - `/retry`: Regenerate response for last message
-- `/mode`: Switch conversation mode to a previously defined mode via `/addmode`.
-- `/addmode`: Add a new conversation mode. A mode consists of a name and a prompt. The prompt will be used as the system prompt for conversations.
-- `/editmodes`: Edit or delete a mode.
+- `/mode`: Change current mode and manage modes

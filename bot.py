@@ -175,9 +175,7 @@ async def __post_init(app: Application):
     ('new', "Start a new conversation"),
     ('history', "Show previous conversations"),
     ('retry', "Regenerate response for last message"),
-    ('mode', "Select a mode for current conversation"),
-    ('editmodes', "Manage modes"),
-    ('addmode', "Create a new mode"),
+    ('mode', "Select a mode for current chat and manage modes"),
   ]
   await app.bot.set_my_commands(commands)
   logging.info("Set command list")
@@ -254,7 +252,7 @@ def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[in
 
   app.add_handler(CommandHandler('mode', create_callback(__set_mode), block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__set_mode), pattern=r'^/mode$', block=False))
-  app.add_handler(CommandHandler('editmodes', create_callback(__edit_modes), block=False))
+  app.add_handler(CallbackQueryHandler(create_callback(__edit_modes), pattern=r'^\/mode_show$', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_show_detail), pattern=r'\/mode_detail_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_select), pattern=r'\/mode_select_.+', block=False))
   app.add_handler(CallbackQueryHandler(create_callback(__mode_clear), pattern=r'^\/mode_clear$', block=False))
@@ -262,18 +260,18 @@ def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[in
 
   app.add_handler(ConversationHandler(
                     entry_points=[
-                      CommandHandler('addmode', create_callback(__mode_add_start), block=False),
+                      CallbackQueryHandler(create_callback(__mode_add_start), pattern=r'^\/mode_add$', block=False),
                       CallbackQueryHandler(create_callback(__mode_edit_start), pattern=r'\/mode_edit_.+', block=False),
                     ],
                     states={
-                      ModeEditState.ENTER_TITLE: [MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
-                      ModeEditState.ENTER_PROMPT: [MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
+                      ModeEditState.ENTER_TITLE: [MessageHandler(filters.TEXT & filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_title), block=False)],
+                      ModeEditState.ENTER_PROMPT: [MessageHandler(filters.TEXT & filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__mode_enter_prompt), block=False)],
                     },
                     fallbacks=[CommandHandler('cancel', create_callback(__mode_add_cancel), block=False)],
                   ))
 
-  app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), create_callback(__handle_message), block=False))
-  app.add_handler(MessageHandler(filters.VOICE, create_callback(__handle_audio), block=False))
+  app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
+  app.add_handler(MessageHandler(filters.VOICE & filters.UpdateType.MESSAGE, create_callback(__handle_audio), block=False))
 
   if webhook_info:
     parts = webhook_info.listen_address.split(':')

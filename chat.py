@@ -88,7 +88,7 @@ class ChatManager:
     if current_mode:
       text = f"Started a new conversation in mode \"{current_mode.title}\"."
     else:
-      text = "Started a new conversation without mode. Send /addmode to create a new mode."
+      text = "Started a new conversation without mode. Send /mode to create a new mode."
 
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Change mode", callback_data="/mode")]])
     await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
@@ -204,13 +204,14 @@ class ChatManager:
   async def list_modes_for_selection(self):
     modes = list(self.context.modes.values())
 
-    if not modes:
-      await self.bot.send_message(chat_id=self.context.chat_id, text="No modes available. Send /addmode to create a new mode.")
-      return
+    if modes:
+      current_mode = self.context.current_mode
+      text = f"Current mode: \"{current_mode.title}\". Change to mode:" if current_mode else "Select a mode:"
+    else:
+      text = "No modes available. Tap \"Add\" to create a new mode."
 
-    current_mode = self.context.current_mode
-    text = f"Current mode: \"{current_mode.title}\". Change to mode:" if current_mode else "Select a mode:"
-    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes] + [[InlineKeyboardButton("Clear", callback_data="/mode_clear")]])
+    action_buttons = [[InlineKeyboardButton("Clear", callback_data="/mode_clear"), InlineKeyboardButton("Add", callback_data="/mode_add"), InlineKeyboardButton("Show", callback_data="/mode_show")]]
+    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_select_{mode.id}")] for mode in modes] + action_buttons)
     await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
 
   async def select_mode(self, mode_id: str|None, sent_message_id: int):
@@ -263,7 +264,7 @@ class ChatManager:
       reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(mode.title, callback_data=f"/mode_detail_{mode.id}")] for mode in modes])
       await self.bot.send_message(chat_id=self.context.chat_id, text=text, reply_markup=reply_markup)
     else:
-      text = "No modes defined. Send /addmode to add a new mode."
+      text = "No modes defined. Send /mode to add a new mode."
       await self.bot.send_message(chat_id=self.context.chat_id, text=text)
 
     logging.info(f"Showed modes for chat {self.context.chat_id}")
