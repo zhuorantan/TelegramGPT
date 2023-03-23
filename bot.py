@@ -1,7 +1,8 @@
 import asyncio
 import logging
+import os
 from chat import ChatData, ChatManager, ChatState, ChatContext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from gpt import GPTClient
 from speech import SpeechClient
@@ -9,6 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ConversationHandler, PicklePersistence, filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 from telegram.warnings import PTBUserWarning
 from typing import cast
+from uuid import uuid4
 from warnings import filterwarnings
 
 async def __start(_: Update, chat_manager: ChatManager):
@@ -172,10 +174,28 @@ async def __mode_add_cancel(_: Update, chat_manager: ChatManager) -> int:
   return ConversationHandler.END
 
 
-@dataclass
-class WebhookInfo:
+class WebhookOptions:
+  url: str
   listen_address: str
-  url: str|None
+
+  @property
+  def host_and_port(self):
+    parts = self.listen_address.split(':')
+    host = parts[0]
+    port = int(parts[1] if len(parts) > 1 else 80)
+    return (host, port)
+
+  def __init__(self, url: str, listen_address: str):
+    self.url = url
+    self.listen_address = listen_address
+
+@dataclass
+class BotOptions:
+  token: str = field(repr=False)
+  allowed_chat_ids: set[int]
+  conversation_timeout: int|None = None
+  data_dir: str|None = None
+  webhook: WebhookOptions|None = None
 
 async def __post_init(app: Application):
   commands = [
@@ -230,17 +250,16 @@ def __create_callback(gpt: GPTClient, speech: SpeechClient|None, chat_tasks: dic
 
   return handler
 
-def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[int], conversation_timeout: int|None, data_path: str|None, webhook_info: WebhookInfo|None):
+def run(token: str, gpt: GPTClient, speech: SpeechClient|None, options: BotOptions):
   chat_tasks = {}
-  allowed_chat_ids = set(chat_ids)
   chat_states = {}
 
   def create_callback(callback):
-    return __create_callback(gpt, speech, chat_tasks, allowed_chat_ids, conversation_timeout, chat_states, callback)
+    return __create_callback(gpt, speech, chat_tasks, options.allowed_chat_ids, options.conversation_timeout, chat_states, callback)
 
   app_builder = ApplicationBuilder().token(token).post_init(__post_init)
-  if data_path:
-    persistence = PicklePersistence(data_path)
+  if options.data_dir:
+    persistence = PicklePersistence(os.path.join(options.data_dir, 'data'))
     app_builder.persistence(persistence)
   app = app_builder.build()
 
@@ -282,11 +301,13 @@ def run(token: str, gpt: GPTClient, speech: SpeechClient|None, chat_ids: list[in
   app.add_handler(MessageHandler(filters.TEXT & filters.UpdateType.MESSAGE & (~filters.COMMAND), create_callback(__handle_message), block=False))
   app.add_handler(MessageHandler(filters.VOICE & filters.UpdateType.MESSAGE, create_callback(__handle_audio), block=False))
 
-  if webhook_info:
-    parts = webhook_info.listen_address.split(':')
-    host = parts[0]
-    port = int(parts[1] if len(parts) > 1 else 80)
-    url = webhook_info.url or f"https://{webhook_info.listen_address}"
-    app.run_webhook(host, port, webhook_url=url)
+  if options.webhook:
+    host, port = options.webhook.host_and_port
+    app.run_webhook(
+      host,
+      port,
+      webhook_url=options.webhook.url,
+      secret_token=str(uuid4()),
+    )
   else:
     app.run_polling()

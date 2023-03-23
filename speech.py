@@ -4,7 +4,7 @@ class SpeechClient:
   def __init__(self, key: str, region: str = 'westus'):
     self.__key = key
     self.__region = region
-    self.__session = aiohttp.ClientSession()
+    self.__session = aiohttp.ClientSession(trust_env=True)
 
   async def speech_to_text(self, audio: bytes) -> str:
     headers = {

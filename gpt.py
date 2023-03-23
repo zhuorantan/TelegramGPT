@@ -1,15 +1,30 @@
 import asyncio
+from dataclasses import dataclass, field
 import logging
 import openai
 from aiohttp import ClientSession
 from models import AssistantMessage, Conversation, Message, SystemMessage, UserMessage
 from typing import cast
 
-class GPTClient:
-  def __init__(self, api_key: str,  max_message_count: int|None):
-    self.__max_message_count = max_message_count
+@dataclass
+class GPTOptions:
+  api_key: str = field(repr=False)
+  model_name: str = 'gpt-3.5-turbo'
+  azure_endpoint: str|None = None
+  max_message_count: int|None = None
 
-    openai.api_key = api_key
+class GPTClient:
+  def __init__(self, *, options: GPTOptions):
+    self.__model_name = options.model_name
+    self.__max_message_count = options.max_message_count
+    self.__is_azure = options.azure_endpoint is not None
+
+    openai.api_key = options.api_key
+    if options.azure_endpoint:
+      openai.api_base = options.azure_endpoint
+      openai.api_type = 'azure'
+      openai.api_version = "2023-03-15-preview"
+
     openai.aiosession.set(ClientSession(trust_env=True))
 
   async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int, system_message: SystemMessage|None) -> AssistantMessage:
@@ -47,9 +62,15 @@ class GPTClient:
     return conversation
 
   async def __request(self, messages: list[Message]) -> str:
-    task = openai.ChatCompletion.acreate(
-      model='gpt-3.5-turbo',
-      messages=[{'role': message.role, 'content': message.content} for message in messages],
-    )
+    if self.__is_azure:
+      task = openai.ChatCompletion.acreate(
+        engine=self.__model_name,
+        messages=[{'role': message.role, 'content': message.content} for message in messages],
+      )
+    else:
+      task = openai.ChatCompletion.acreate(
+        model=self.__model_name,
+        messages=[{'role': message.role, 'content': message.content} for message in messages],
+      )
     response = await asyncio.wait_for(task, 60)
     return cast(dict, response)['choices'][0]['message']['content']
