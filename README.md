@@ -197,13 +197,13 @@ For Docker Compose, add `http_proxy` and `https_proxy` environment variables to 
 |-|-|-|-|
 | `--openai-api-key` | `TELEGRAM_GPT_OPENAI_API_KEY` | OpenAI API key created from [OpenAI Platform](https://platform.openai.com/account/api-keys). If `--azure-openai-endpoint` is specified, this is the Azure OpenAI Service API key. | |
 | `--telegram-token` | `TELEGRAM_GPT_TELEGRAM_TOKEN` | Telegram bot token. Get it from [@BotFather](https://t.me/BotFather). | |
-| `--chat-id` | `TELEGRAM_GPT_CHAT_ID`, `TELEGRAM_GPT_CHAT_ID_*` | IDs of Allowed chats. Can be specified multiple times. If not specified, the bot will respond to all chats. | `[]` |
-| `--conversation-timeout` | `TELEGRAM_GPT_CONVERSATION_TIMEOUT` | Timeout in seconds for a conversation to expire. If not specified, the bot will keep the conversation alive indefinitely. | `None` |
-| `--max-message-count` | `TELEGRAM_GPT_MAX_MESSAGE_COUNT` | Maximum number of messages to keep in the conversation. Earlier messages will be discarded with this option set. If not specified, the bot will keep all messages in the conversation. | `None` |
-| `--data-dir` | `TELEGRAM_GPT_DATA_DIR` | Directory to store data. If not specified, data won't be persisted. | `None` |
-| `--webhook-url` | `TELEGRAM_GPT_WEBHOOK_URL` | URL for telegram webhook requests. If not specified, the bot will use polling mode. | `None` |
+| `--chat-id` | `TELEGRAM_GPT_CHAT_ID`, `TELEGRAM_GPT_CHAT_ID_*` | IDs of Allowed chats. Can be specified multiple times. If not specified, the bot will respond to all chats. | |
+| `--conversation-timeout` | `TELEGRAM_GPT_CONVERSATION_TIMEOUT` | Timeout in seconds for a conversation to expire. If not specified, the bot will keep the conversation alive indefinitely. | |
+| `--max-message-count` | `TELEGRAM_GPT_MAX_MESSAGE_COUNT` | Maximum number of messages to keep in the conversation. Earlier messages will be discarded with this option set. If not specified, the bot will keep all messages in the conversation. | |
+| `--data-dir` | `TELEGRAM_GPT_DATA_DIR` | Directory to store data. If not specified, data won't be persisted. | |
+| `--webhook-url` | `TELEGRAM_GPT_WEBHOOK_URL` | URL for telegram webhook requests. If not specified, the bot will use polling mode. | |
 | `--webhook-listen-address` | `TELEGRAM_GPT_WEBHOOK_LISTEN_ADDRESS` | Address to listen for telegram webhook requests in the format of <ip>:<port>. Only valid when `--webhook-url` is set. | `0.0.0.0:80` |
 | `--openai-model-name` | `TELEGRAM_GPT_OPENAI_MODEL_NAME` | Chat completion model name. If `--azure-openai-endpoint` is specified, this is the Azure OpenAI Service model deployment name. | `gpt-3.5-turbo` |
-| `--azure-openai-endpoint` | `TELEGRAM_GPT_AZURE_OPENAI_ENDPOINT` | Azure OpenAI Service endpoint. Set this option to use Azure OpenAI Service instead of OpenAI API. | `None` |
-| `--azure-speech-key` | `TELEGRAM_GPT_AZURE_SPEECH_KEY` | Azure Speech Services API key. Set this option to enable voice messages powered by Azure speech-to-text and text-to-speech services. | `None` |
+| `--azure-openai-endpoint` | `TELEGRAM_GPT_AZURE_OPENAI_ENDPOINT` | Azure OpenAI Service endpoint. Set this option to use Azure OpenAI Service instead of OpenAI API. | |
+| `--azure-speech-key` | `TELEGRAM_GPT_AZURE_SPEECH_KEY` | Azure Speech Services API key. Set this option to enable voice messages powered by Azure speech-to-text and text-to-speech services. | |
 | `--azure-speech-region` | `TELEGRAM_GPT_AZURE_SPEECH_REGION` | Azure Speech Services region. Only valid when --azure-speech-key is set. | `westus` |
