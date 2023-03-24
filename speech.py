@@ -34,3 +34,6 @@ class SpeechClient:
 
     response = await self.__session.post(f"https://{self.__region}.tts.speech.microsoft.com/cognitiveservices/v1", headers=headers, data=data)
     return await response.content.read()
+
+  async def close(self):
+    await self.__session.close()

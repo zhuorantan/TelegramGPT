@@ -174,6 +174,7 @@ async def __mode_add_cancel(_: Update, chat_manager: ChatManager) -> int:
   return ConversationHandler.END
 
 
+@dataclass
 class WebhookOptions:
   url: str
   listen_address: str
@@ -196,17 +197,6 @@ class BotOptions:
   conversation_timeout: int|None = None
   data_dir: str|None = None
   webhook: WebhookOptions|None = None
-
-async def __post_init(app: Application):
-  commands = [
-    ('new', "Start a new conversation"),
-    ('history', "Show previous conversations"),
-    ('retry', "Regenerate response for last message"),
-    ('mode', "Select a mode for current chat and manage modes"),
-    ('say', "Read out message sent by the bot by replying to it")
-  ]
-  await app.bot.set_my_commands(commands)
-  logging.info("Set command list")
 
 def __create_callback(gpt: GPTClient, speech: SpeechClient|None, chat_tasks: dict[int, asyncio.Task], allowed_chat_ids: set[int], conversation_timeout: int|None, chat_states: dict[int, ChatState], callback):
   async def invoke(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
@@ -257,7 +247,22 @@ def run(token: str, gpt: GPTClient, speech: SpeechClient|None, options: BotOptio
   def create_callback(callback):
     return __create_callback(gpt, speech, chat_tasks, options.allowed_chat_ids, options.conversation_timeout, chat_states, callback)
 
-  app_builder = ApplicationBuilder().token(token).post_init(__post_init)
+  async def post_init(app: Application):
+    commands = [
+      ('new', "Start a new conversation"),
+      ('history', "Show previous conversations"),
+      ('retry', "Regenerate response for last message"),
+      ('mode', "Select a mode for current chat and manage modes"),
+      ('say', "Read out message sent by the bot by replying to it")
+    ]
+    await app.bot.set_my_commands(commands)
+    logging.info("Set command list")
+
+  async def post_shutdown(_: Application):
+    if speech:
+      await speech.close()
+
+  app_builder = ApplicationBuilder().token(token).post_init(post_init).post_shutdown(post_shutdown)
   if options.data_dir:
     persistence = PicklePersistence(os.path.join(options.data_dir, 'data'))
     app_builder.persistence(persistence)
