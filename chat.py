@@ -8,7 +8,7 @@ from models import AssistantMessage, Conversation, Role, SystemMessage, UserMess
 from speech import SpeechClient
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ExtBot
-from typing import TypedDict, cast
+from typing import TypedDict, cast, final
 from uuid import uuid4
 
 @dataclass
@@ -317,10 +317,22 @@ class ChatManager:
     chat_id = self.context.chat_id
     try:
       system_prompt = SystemMessage(self.context.current_mode.prompt) if self.context.current_mode else None
-      message = await self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, system_prompt)
-      await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content)
+      final_message = None
 
-      logging.info(f"Replied chat {chat_id} with text '{message}'")
+      last_update_task = None
+
+      async for message in self.__gpt.complete(conversation, cast(UserMessage, conversation.last_message), sent_message_id, system_prompt):
+        final_message = message
+
+        if last_update_task and not last_update_task.done():
+          continue
+
+        last_update_task = asyncio.create_task(self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=message.content + '\n\nGenerating...'))
+
+      if final_message:
+        await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text=final_message.content)
+
+      logging.info(f"Replied chat {chat_id} with message '{final_message}'")
     except TimeoutError:
       retry_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Retry', callback_data='/retry')]])
       await self.bot.edit_message_text(chat_id=chat_id, message_id=sent_message_id, text="Generation timed out.", reply_markup=retry_markup)

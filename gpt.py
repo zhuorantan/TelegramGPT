@@ -27,17 +27,20 @@ class GPTClient:
 
     openai.aiosession.set(ClientSession(trust_env=True))
 
-  async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int, system_message: SystemMessage|None) -> AssistantMessage:
+  async def complete(self, conversation: Conversation, user_message: UserMessage, sent_msg_id: int, system_message: SystemMessage|None):
     logging.info(f"Completing message for conversation {conversation.id}, message: '{user_message}'")
 
     logging.debug(f"Current conversation for chat {conversation.id}: {conversation}")
 
-    text = await self.__request(([system_message] if system_message else []) + conversation.messages)
-    assistant_message = AssistantMessage(sent_msg_id, text, user_message.id)
+    assistant_message = None
 
-    conversation.messages.append(assistant_message)
+    async for chunk in self.__stream(([system_message] if system_message else []) + conversation.messages):
+      if not assistant_message:
+        assistant_message = AssistantMessage(sent_msg_id, '', user_message.id)
+        conversation.messages.append(assistant_message)
 
-    logging.info(f"Completed message for chat {conversation.id}, message: '{assistant_message}'")
+      assistant_message.content += chunk
+      yield assistant_message
 
     if conversation.title is None and len(conversation.messages) < 3:
       async def set_title(conversation: Conversation):
@@ -51,7 +54,7 @@ class GPTClient:
 
       asyncio.create_task(set_title(conversation))
 
-    return assistant_message
+    logging.info(f"Completed message for chat {conversation.id}, message: '{assistant_message}'")
 
   def new_conversation(self, conversation_id: int, user_message: UserMessage) -> Conversation:
     conversation = Conversation(conversation_id, None, user_message.timestamp, [user_message])
@@ -61,7 +64,7 @@ class GPTClient:
 
     return conversation
 
-  async def __request(self, messages: list[Message]) -> str:
+  async def __request(self, messages: list[Message]):
     if self.__is_azure:
       task = openai.ChatCompletion.acreate(
         engine=self.__model_name,
@@ -74,3 +77,21 @@ class GPTClient:
       )
     response = await asyncio.wait_for(task, 60)
     return cast(dict, response)['choices'][0]['message']['content']
+
+  async def __stream(self, messages: list[Message]):
+    if self.__is_azure:
+      task = openai.ChatCompletion.acreate(
+        engine=self.__model_name,
+        messages=[{'role': message.role, 'content': message.content} for message in messages],
+        stream=True,
+      )
+    else:
+      task = openai.ChatCompletion.acreate(
+        model=self.__model_name,
+        messages=[{'role': message.role, 'content': message.content} for message in messages],
+        stream=True,
+      )
+    async for response in await task:
+      content = cast(dict, response)['choices'][0]['delta'].get('content')
+      if content:
+        yield content
